@@ -1,0 +1,141 @@
+# tpt-systems-optimization Specification
+
+## 1. Purpose
+A workspace for large-scale, network-aware, and discrete mathematical optimization. While `tpt-math-optimize` handles dense, continuous convex problems (QP, NLP), this workspace provides the Mixed-Integer, Network Flow, Constraint Programming, and decomposition solvers required for system-level design and operations. It bridges the gap between pure mathematical optimization in `tpt-math` and real-world engineering, economic, and logistical decision-making in Tier 2 domains. All solvers are implemented in pure Rust with no external solver dependencies, though the trait design allows plugging in commercial solvers (HiGHS, SCIP, Gurobi) via feature flags for benchmarking or production use.
+
+## 2. Scope & Boundaries
+- IN SCOPE: Mixed-Integer Linear Programming (MILP), Mixed-Integer Nonlinear Programming (MINLP), network flow optimization (min-cost flow, optimal power flow), constraint programming (CP), heuristic/metaheuristic search, multi-objective Pareto optimization, robust/stochastic optimization under uncertainty, and large-scale decomposition methods (Benders, Dantzig-Wolfe, column generation).
+- OUT OF SCOPE: Low-level dense linear algebra (delegated to `tpt-math-linalg`), real-time control or Model Predictive Control (delegated to `tpt-eng-controls`), or domain-specific optimization formulations (e.g., unit commitment formulations live in Tier 2, not here).
+- DEPENDS ON: `tpt-math-linalg`, `tpt-math-linalg-complex`, `tpt-math-optimize-convex`, `tpt-math-optimize-general`, `tpt-math-graph`, `tpt-math-numeric`, `tpt-math-prob`.
+
+## 3. Crate Inventory
+
+### Core Infrastructure
+
+#### `tpt-opt-core`
+The foundation layer defining the canonical representation of optimization problems and the solver interface contract. Provides the `Model`, `Variable`, `Constraint`, `Objective`, and `Solver` traits that establish a consistent API across all solver implementations. Defines sparse constraint matrix representations (CSR/CSC) compatible with `tpt-math-linalg`, variable bound types (continuous, integer, binary, semi-continuous), and solver status enums (`Optimal`, `Infeasible`, `Unbounded`, `TimeLimit`, `NumericalIssue`, `Error`). Includes warm-start interfaces for reusing previous solutions, parameter tuning APIs (time limit, gap tolerance, thread count, verbosity), solution extraction utilities (primal values, dual values, reduced costs, slack variables), and structured error types with infeasibility diagnostics. All core traits are `no_std` compatible with optional `alloc` support.
+
+### Discrete Optimization
+
+#### `tpt-opt-milp`
+A complete Mixed-Integer Linear Programming solver implementing branch-and-bound with branch-and-cut enhancements. Includes cutting-plane generation (Gomory mixed-integer cuts, clique cuts, cover inequalities, MIR cuts, lift-and-project cuts) applied at the root node and optionally at tree nodes. Provides primal heuristics (feasibility pump, rounding heuristics, relaxation induced neighborhood search, local branching) for finding good incumbent solutions early. Supports multiple node selection strategies (best-bound, best-estimate, depth-first) and variable branching rules (most fractional, strong branching, pseudo-cost branching). Handles special ordered sets (SOS1, SOS2), indicator constraints ("if binary y=1 then linear constraint holds"), and piecewise linear objectives. Includes parallel tree search using a work-stealing thread pool with concurrent cut generation and heuristic execution in background threads.
+
+#### `tpt-opt-minlp`
+A Mixed-Integer Nonlinear Programming solver for problems with both discrete decisions and nonlinear constraints/objectives. Implements outer-approximation (OA) for convex MINLP, where the nonlinear problem is iteratively approximated by a sequence of MILP master problems and NLP subproblems. Includes generalized Benders decomposition (GBD) for problems with complicating variables, and sequential quadratic programming (SQP) branch-and-bound for non-convex MINLP. Supports convex relaxations of nonlinear constraints using McCormick envelopes and alpha-BB techniques. Handles indicator constraints with nonlinear consequents, logical constraints (AND/OR/XOR on binary variables), and complementarity constraints. Provides convergence certificates and duality gap tracking for assessing solution quality on non-convex problems.
+
+### Network Optimization
+
+#### `tpt-opt-network`
+A suite of network flow and graph-based optimization algorithms built on top of `tpt-math-graph`. Implements the network simplex algorithm for min-cost flow problems with capacity constraints and multiple commodities. Includes successive shortest path and Hungarian algorithm for assignment and matching problems. Provides optimal power flow (OPF) formulations: AC-OPF with polar and rectangular coordinate variants using interior-point methods, DC-OPF with linearized power flow for fast approximate solutions, and security-constrained OPF (SC-OPF) with contingency constraints. Includes graph preprocessing utilities (cycle detection, bridge identification, biconnected component decomposition, series-parallel reduction) for simplifying large networks before solving. Supports dynamic networks where capacities or costs change over time, with warm-starting between time periods for efficiency.
+
+### Constraint Programming
+
+#### `tpt-opt-cp`
+A constraint programming engine designed for combinatorial problems where MILP relaxations are weak (scheduling, routing, configuration). Implements constraint propagation with arc consistency algorithms (AC-3 for binary constraints, AC-4 for fine-grained domain reduction, maintained arc consistency for incremental updates). Includes a library of global constraints: `alldifferent` (with Hall's theorem-based filtering), `cumulative` (for resource-constrained scheduling with time-table and energetic reasoning), `element` (array indexing), `table` (explicit tuple enumeration with GAC support), `regular` (automaton-based sequence constraints), and `circuit` (Hamiltonian cycle). Supports search strategies including first-fail principle, domain splitting, impact-based search, and activity-based search. Provides reification (turning constraints into boolean variables) for modeling complex logical relationships. Includes conflict-directed backjumping and learning (no-good recording) for faster search on infeasible problems.
+
+### Metaheuristics
+
+#### `tpt-opt-heuristic`
+A collection of metaheuristic optimization algorithms for problems where exact methods are too slow or the problem is non-convex with no good relaxation. Implements simulated annealing with adaptive cooling schedules (geometric, adaptive, reheating) and neighborhood structures. Includes genetic algorithms with configurable crossover operators (single-point, two-point, uniform, order-based for permutations), mutation operators (bit-flip, swap, inversion, scramble), and selection strategies (tournament, roulette, rank). Provides tabu search with adaptive tenure, aspiration criteria, and diversification/intensification mechanisms. Includes particle swarm optimization (PSO) with inertia weight adaptation and neighborhood topologies (global, local, Von Neumann). All heuristics are seedable via a `Rng` parameter for deterministic reproducibility, support custom neighborhood structures via trait objects, and provide convergence history tracking for analysis. Designed as fallbacks when exact methods fail or for rapid prototyping of objective functions.
+
+### Multi-Objective & Pareto Optimization
+
+#### `tpt-opt-multi`
+Multi-objective optimization for problems with competing objectives where no single solution dominates all others. Implements the ε-constraint method for generating Pareto-optimal solutions by iteratively solving single-objective subproblems. Includes weighted sum and weighted Tchebycheff scalarization with adaptive weight generation. Provides NSGA-II (Non-dominated Sorting Genetic Algorithm II) for approximating the full Pareto front in a single run, with crowding distance for diversity preservation and fast non-dominated sorting. Includes hypervolume calculation (using the WFG algorithm for efficiency), Pareto dominance checking, and epsilon-indicator for comparing solution sets. Supports preference articulation via reference points (NSGA-III style) and objective normalization for problems with disparate scales. Provides utilities for decision-making on the Pareto front: knee point detection, trade-off analysis, and solution clustering.
+
+### Robust & Stochastic Optimization
+
+#### `tpt-opt-robust`
+Optimization under uncertainty for problems where parameters are not known with certainty. Implements scenario-based stochastic programming for two-stage and multi-stage decision problems, where first-stage decisions are made before uncertainty is revealed and second-stage (recourse) decisions adapt to realized scenarios. Includes sample average approximation (SAA) for problems with too many scenarios to enumerate, with statistical confidence intervals on solution quality. Provides adjustable robust optimization (ARO) with budgeted uncertainty sets (Γ-robustness) and ellipsoidal uncertainty sets, using tractable reformulations (LP, SOCP, SDP) where possible. Supports chance constraints (probability of constraint violation ≤ α) using scenario approximation or conservative deterministic equivalents. Includes distributionally robust optimization with ambiguity sets (moment-based, Wasserstein ball) for cases where the probability distribution itself is uncertain. Provides value of stochastic solution (VSS) and expected value of perfect information (EVPI) calculations for quantifying the benefit of stochastic modeling.
+
+### Decomposition & Large-Scale Methods
+
+#### `tpt-opt-decompose`
+Decomposition methods for solving large-scale optimization problems by breaking them into smaller, more tractable subproblems. Implements Benders decomposition for problems with complicating variables (e.g., facility location, network design), where the master problem optimizes the complicating variables and subproblems optimize the remaining variables with the complicating variables fixed. Includes Pareto-optimal cut generation for faster convergence and stabilization techniques (level set, trust region) for oscillation prevention. Provides Dantzig-Wolfe decomposition for problems with block-diagonal structure (e.g., multi-commodity flow, crew scheduling), where the master problem is a set partitioning/covering problem and subproblems are independent blocks. Includes column generation with pricing subproblems, branch-and-price for integer solutions, and restricted master problem management. Supports Lagrangian relaxation with subgradient optimization, bundle methods, and surrogate constraints for obtaining strong dual bounds. Provides automatic problem analysis to detect decomposable structure and recommend appropriate decomposition strategies.
+
+### Umbrella
+
+#### `tpt-opt-systems`
+Feature-gated umbrella crate that re-exports all optimization solvers and utilities. Each solver category is an optional Cargo feature (e.g., `features = ["milp", "network", "cp"]`), allowing downstream users to pull in only the capabilities they need. Compiling without any features yields a minimal crate that only re-exports `tpt-opt-core`. The feature tree is flat to avoid Cargo feature unification surprises. Provides convenience constructors and builder patterns for common problem formulations (e.g., `MilpBuilder`, `NetworkFlowBuilder`). Includes a unified `OptimizationError` type that wraps solver-specific errors with context about which algorithm failed. Provides format conversion utilities between different problem representations (e.g., converting a network flow problem to MILP form for solvers that don't have specialized network algorithms).
+
+## 4. Design Principles
+
+### Solver Agnosticism
+While we provide in-house solvers, the trait design must allow swapping in external solvers (HiGHS, SCIP, Gurobi, CPLEX, CBC) via feature flags for benchmarking or when commercial solvers are available. The `Solver` trait defines a common interface:
+
+rust
+pub trait Solver<M: Model> {
+fn solve(&mut self, model: &M) -> Result<Solution, SolverError>;
+fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), ParameterError>;
+fn warm_start(&mut self, solution: &PartialSolution) -> Result<(), WarmStartError>;
+fn status(&self) -> SolverStatus;
+fn solution(&self) -> Option<&Solution>;
+}
+
+This allows users to prototype with in-house solvers and switch to commercial solvers for production without changing their model code.
+
+### Sparsity First
+All network and MILP formulations must natively exploit sparse matrix structures from `tpt-math-linalg`. Constraint matrices are stored in CSR (Compressed Sparse Row) format, and solvers must avoid materializing dense matrices. This is critical for large-scale problems (e.g., 100,000+ variables in unit commitment, 1,000,000+ variables in vehicle routing). Sparse matrix operations (multiplication, factorization, transpose) must be optimized for cache locality and SIMD vectorization where possible.
+
+### Reproducibility
+All heuristic and branching strategies must be seedable via a `Rng` parameter for deterministic, reproducible runs. This is essential for debugging, regression testing, and regulatory compliance in industries like energy and finance. Example:
+```rust
+let mut solver = MilpSolver::new()
+    .with_seed(42)  // Deterministic branching and heuristics
+    .with_time_limit(Duration::from_secs(3600));
+
+Parallel solvers must use deterministic work distribution to ensure reproducibility across runs with the same seed.
+Numerical Stability
+MILP and NLP solvers must handle numerical tolerances carefully:
+Integrality tolerance: Variables within ε of an integer are considered integer (default ε = 1e-6)
+Feasibility tolerance: Constraints satisfied within δ are considered feasible (default δ = 1e-6)
+Optimality gap: Solver terminates when (UB - LB) / |UB| < gap (default gap = 1e-4)
+Pivoting tolerance: For LU factorization, use partial pivoting with threshold to maintain stability
+These tolerances must be configurable and documented. Solvers must detect and report numerical issues (cycling, stalling, ill-conditioning) rather than silently producing incorrect results.
+Parallelism
+Branch-and-bound tree search must support parallel node processing using a work-stealing thread pool. Cut generation and primal heuristics can run asynchronously in background threads. Network simplex and interior-point methods must support multi-threaded linear algebra operations. The solver must be thread-safe and support concurrent solve calls on different models. Example:
+
+let mut solver = MilpSolver::new()
+    .with_threads(8)  // Use 8 threads for parallel tree search
+    .with_parallel_cuts(true);  // Generate cuts in parallel
+
+Extensibility
+Users must be able to define custom constraints, objectives, and branching rules without modifying the crate:
+
+pub trait CustomConstraint {
+    fn evaluate(&self, solution: &[f64]) -> f64;
+    fn gradient(&self, solution: &[f64]) -> Vec<f64>;
+    fn is_violated(&self, solution: &[f64], tolerance: f64) -> bool;
+}
+
+This allows domain experts to model novel constraints (e.g., physics-based constraints, regulatory requirements) and plug them into the optimization framework.
+5. Build Order
+tpt-opt-core (foundation traits, sparse matrix utilities, parameter handling)
+tpt-opt-milp (branch-and-bound, cutting planes, primal heuristics)
+tpt-opt-network (network simplex, OPF, graph preprocessing)
+tpt-opt-minlp (outer-approximation, Benders, SQP branch-and-bound)
+tpt-opt-cp (constraint propagation, global constraints, search strategies)
+tpt-opt-heuristic (simulated annealing, GA, tabu, PSO)
+tpt-opt-multi (ε-constraint, weighted sum, NSGA-II, hypervolume)
+tpt-opt-robust (scenario-based, SAA, ARO, chance constraints)
+tpt-opt-decompose (Benders, Dantzig-Wolfe, column generation, Lagrangian)
+tpt-opt-systems (umbrella with feature gates, convenience builders)
+6. Testing Strategy
+Unit tests: Each solver component (branching strategy, cut generator, constraint propagator) tested in isolation with small, hand-crafted examples
+Integration tests: End-to-end solve on benchmark problems from MIPLIB 2017 (MILP), MINLPLib (MINLP), Netlib (LP), and CSPLib (CP)
+Performance regression tests: Track solve time, memory usage, and node count on standard benchmarks to detect regressions
+Fuzz testing: Generate random optimization problems with varying sizes, densities, and constraint types; verify solver invariants (solution satisfies all constraints, objective value matches reported value, integrality constraints are satisfied)
+Cross-solver validation: Compare in-house solver results against HiGHS, SCIP, and Gurobi on the same problems to verify correctness
+Numerical stability tests: Solve problems with varying condition numbers and scaling to verify robustness
+Parallel correctness tests: Verify that parallel solvers produce the same results as sequential solvers (within numerical tolerance) for deterministic seeds
+7. Tier 2 Consumption Model
+Each Tier 2 repository depends on tpt-opt-systems with only the features it needs:
+tpt-energy: features = ["milp", "network", "robust"] for unit commitment, optimal power flow, and renewable uncertainty
+tpt-transportation: features = ["milp", "cp", "multi", "heuristic"] for supply chain optimization, vehicle routing, multi-objective fleet design, and fallback heuristics
+tpt-process: features = ["minlp", "decompose", "multi"] for heat exchanger network synthesis, flowsheet optimization, and process design trade-offs
+tpt-construction: features = ["cp", "milp", "multi"] for resource-constrained project scheduling, cost optimization, and time-cost-quality trade-offs
+tpt-earth: features = ["network", "robust"] for water distribution network design and geological uncertainty
+tpt-materials: features = ["multi", "heuristic"] for multi-objective material selection (strength vs. weight vs. cost) and microstructure optimization
+tpt-medical: features = ["milp", "cp"] for treatment planning optimization and operating room scheduling
+tpt-electronics: features = ["milp", "network"] for component placement optimization and power grid design
+This ensures minimal compile-time overhead and binary size for each domain while providing access to the full optimization toolkit when needed.

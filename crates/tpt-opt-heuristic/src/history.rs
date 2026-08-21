@@ -22,11 +22,7 @@ pub struct ConvergenceHistory {
 impl ConvergenceHistory {
     /// Create an empty history.
     pub fn new() -> Self {
-        Self {
-            iterations: Vec::new(),
-            incumbent: Vec::new(),
-            current: Vec::new(),
-        }
+        Self { iterations: Vec::new(), incumbent: Vec::new(), current: Vec::new() }
     }
 
     /// Record one iteration.

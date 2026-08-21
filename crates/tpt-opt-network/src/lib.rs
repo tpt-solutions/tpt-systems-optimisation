@@ -38,7 +38,7 @@ pub use dynamic::{DynamicNetwork, DynamicNetworkResult};
 pub use graph_preprocess::{biconnected_components, bridges, has_cycle};
 pub use min_cost_flow::{min_cost_flow, network_simplex, MinCostFlowResult, NetworkFlow};
 pub use opf::{
-    ac_opf, dc_opf, sc_opf, Bus, DcOpfResult, Generator, Line, Network, ScOpfResult,
+    ac_opf, dc_opf, sc_opf, AcOpfResult, Bus, DcOpfResult, Generator, Line, Network, ScOpfResult,
 };
 
 pub use lp::LpSolver;

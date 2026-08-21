@@ -42,12 +42,7 @@ impl Gene for f64 {
         let span = (hi - lo).abs().max(1e-3);
         let step = span * 0.1;
         let v = self + rng.normal() * step;
-        if lo.is_finite() {
-            v.max(lo)
-        } else {
-            v
-        }
-        .min(if hi.is_finite() { hi } else { v })
+        if lo.is_finite() { v.max(lo) } else { v }.min(if hi.is_finite() { hi } else { v })
     }
     fn bit_flip(&self, _rng: &mut dyn Rng, lo: f64, hi: f64) -> Self {
         if *self < (lo + hi) / 2.0 {
@@ -73,11 +68,7 @@ impl Gene for usize {
         let v = (*self as f64 + rng.normal() * step).round();
         let lo_i = lo as usize;
         let hi_i = (hi as usize).saturating_sub(1).max(lo_i);
-        let v = if v < lo_i as f64 {
-            lo_i as f64
-        } else {
-            v
-        };
+        let v = if v < lo_i as f64 { lo_i as f64 } else { v };
         let v = if v > hi_i as f64 { hi_i as f64 } else { v };
         v as usize
     }
@@ -213,11 +204,7 @@ fn two_cuts(n: usize, rng: &mut dyn Rng) -> (usize, usize) {
 }
 
 /// Single-point crossover.
-pub fn single_point<T: Gene + Clone>(
-    a: &[T],
-    b: &[T],
-    rng: &mut dyn Rng,
-) -> (Vec<T>, Vec<T>) {
+pub fn single_point<T: Gene + Clone>(a: &[T], b: &[T], rng: &mut dyn Rng) -> (Vec<T>, Vec<T>) {
     let n = a.len().min(b.len());
     let c = if n <= 1 { 0 } else { rng.index(n) };
     let mut c1 = Vec::with_capacity(n);
@@ -421,12 +408,9 @@ pub fn select_index(fitness: &[f64], kind: SelectionKind, rng: &mut dyn Rng) -> 
         }
         SelectionKind::Rank => {
             let mut idx: Vec<usize> = (0..n).collect();
-            idx.sort_by(|&a, &b| {
-                fitness[a]
-                    .partial_cmp(&fitness[b])
-                    .unwrap_or(Ordering::Equal)
-            });
-            let weights: Vec<f64> = idx.iter().enumerate().map(|(rank, _)| (rank + 1) as f64).collect();
+            idx.sort_by(|&a, &b| fitness[a].partial_cmp(&fitness[b]).unwrap_or(Ordering::Equal));
+            let weights: Vec<f64> =
+                idx.iter().enumerate().map(|(rank, _)| (rank + 1) as f64).collect();
             let total: f64 = weights.iter().sum();
             let mut r = rng.next_f64() * total;
             for (i, w) in weights.iter().enumerate() {
@@ -573,9 +557,8 @@ impl<G: Genome> GeneticAlgorithm<G> {
             Sense::Maximize => a > b,
         };
 
-        let mut population: Vec<G> = (0..self.population_size)
-            .map(|_| G::random(&mut self.rng, &self.setup))
-            .collect();
+        let mut population: Vec<G> =
+            (0..self.population_size).map(|_| G::random(&mut self.rng, &self.setup)).collect();
         let mut best_genome: Option<G> = None;
         let mut best_val = match self.sense {
             Sense::Minimize => f64::INFINITY,
@@ -597,7 +580,9 @@ impl<G: Genome> GeneticAlgorithm<G> {
             let mut next: Vec<G> = Vec::with_capacity(self.population_size);
             if self.elite_count > 0 {
                 let mut order: Vec<usize> = (0..population.len()).collect();
-                order.sort_by(|&a, &b| fitness[b].partial_cmp(&fitness[a]).unwrap_or(Ordering::Equal));
+                order.sort_by(|&a, &b| {
+                    fitness[b].partial_cmp(&fitness[a]).unwrap_or(Ordering::Equal)
+                });
                 for &i in order.iter().take(self.elite_count.min(population.len())) {
                     next.push(population[i].clone());
                 }
@@ -616,10 +601,10 @@ impl<G: Genome> GeneticAlgorithm<G> {
             }
             population = next;
 
-            let gen_best = raw
-                .iter()
-                .copied()
-                .fold(f64::NAN, |a, b| if a.is_nan() || better(b, a) { b } else { a });
+            let gen_best =
+                raw.iter()
+                    .copied()
+                    .fold(f64::NAN, |a, b| if a.is_nan() || better(b, a) { b } else { a });
             history.push(gen, best_val, gen_best);
 
             if let Some(t) = self.target {
@@ -668,12 +653,7 @@ impl GeneticAlgorithm<Vec<f64>> {
         let dim = objective.dim();
         let bounds: Vec<(f64, f64)> = (0..dim).map(|i| objective.bound(i)).collect();
         let sense = objective.sense();
-        GeneticAlgorithm::new(
-            move |g: &Vec<f64>| objective.evaluate(g),
-            sense,
-            dim,
-            bounds,
-        )
+        GeneticAlgorithm::new(move |g: &Vec<f64>| objective.evaluate(g), sense, dim, bounds)
     }
 }
 
@@ -739,11 +719,7 @@ mod tests {
     fn selection_indices_in_range() {
         let fitness = vec![1.0, 3.0, 2.0, 0.5, 4.0];
         let mut rng = Xoshiro256::new(3);
-        for kind in [
-            SelectionKind::Tournament(3),
-            SelectionKind::Roulette,
-            SelectionKind::Rank,
-        ] {
+        for kind in [SelectionKind::Tournament(3), SelectionKind::Roulette, SelectionKind::Rank] {
             for _ in 0..200 {
                 let i = select_index(&fitness, kind, &mut rng);
                 assert!(i < fitness.len());
@@ -753,7 +729,8 @@ mod tests {
 
     #[test]
     fn determinism_same_seed() {
-        let obj = ObjectiveFn::minimize(4, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 4]);
+        let obj =
+            ObjectiveFn::minimize(4, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 4]);
         let build = || {
             GeneticAlgorithm::for_objective(obj.clone())
                 .population_size(40)
@@ -767,7 +744,8 @@ mod tests {
 
     #[test]
     fn ga_improves_on_sphere() {
-        let obj = ObjectiveFn::minimize(4, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 4]);
+        let obj =
+            ObjectiveFn::minimize(4, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 4]);
         let mut ga = GeneticAlgorithm::for_objective(obj)
             .population_size(60)
             .generations(120)
@@ -782,12 +760,16 @@ mod tests {
     fn ga_onemax_permutation() {
         // Maximise the sum of a permutation of 0..n  => best is descending.
         let n = 8;
-        let mut ga = GeneticAlgorithm::for_permutation(n, |p| p.iter().sum::<usize>() as f64, Sense::Maximize)
-            .population_size(50)
-            .generations(80)
-            .crossover(CrossoverKind::OrderBased)
-            .mutation(MutationKind::Swap)
-            .with_seed(11);
+        let mut ga = GeneticAlgorithm::for_permutation(
+            n,
+            |p| p.iter().sum::<usize>() as f64,
+            Sense::Maximize,
+        )
+        .population_size(50)
+        .generations(80)
+        .crossover(CrossoverKind::OrderBased)
+        .mutation(MutationKind::Swap)
+        .with_seed(11);
         let res = ga.solve().unwrap();
         assert!(res.best_value >= (n * (n - 1) / 2) as f64 - 1e-9);
     }

@@ -42,14 +42,10 @@ pub mod model;
 pub mod solver;
 pub mod tolerance;
 
-pub use bounds::{
-    Bound, VarBound, VarType,
-};
+pub use bounds::{Bound, VarBound, VarType};
 pub use custom::CustomConstraint;
 pub use error::{InfeasibilityReport, OptError};
-pub use matrix::{model_to_csr, model_to_csc, ConstraintMatrix};
+pub use matrix::{model_to_csc, model_to_csr, ConstraintMatrix};
 pub use model::{Constraint, Model, Objective, Sense, Variable};
-pub use solver::{
-    SolveParameters, Solution, Solver, SolverStatus, Verbosity, WarmStart,
-};
+pub use solver::{Solution, SolveParameters, Solver, SolverStatus, Verbosity, WarmStart};
 pub use tolerance::Tolerances;

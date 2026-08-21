@@ -4,8 +4,8 @@
 //! [`TabuNeighborhood`] additionally reports *which move* (coordinate index)
 //! produced the neighbour, which tabu search needs to maintain its tabu list.
 
-use crate::rng::Rng;
 use crate::problem::Objective;
+use crate::rng::Rng;
 
 /// Produces neighbours of a continuous point.
 pub trait Neighborhood {
@@ -48,11 +48,7 @@ impl GaussianNeighborhood {
         let n = current.len().min(out.len()).min(self.bounds.len());
         for i in 0..n {
             let (lo, hi) = self.bounds[i];
-            let span = if lo.is_finite() && hi.is_finite() {
-                (hi - lo).abs()
-            } else {
-                1.0
-            };
+            let span = if lo.is_finite() && hi.is_finite() { (hi - lo).abs() } else { 1.0 };
             let step = self.scale * span;
             let mut v = current[i] + rng.normal() * step;
             if lo.is_finite() {
@@ -143,11 +139,7 @@ impl TabuNeighborhood for CoordinateNeighborhood {
         let mut out = current.to_vec();
         if i < self.bounds.len() {
             let (lo, hi) = self.bounds[i];
-            let span = if lo.is_finite() && hi.is_finite() {
-                (hi - lo).abs()
-            } else {
-                1.0
-            };
+            let span = if lo.is_finite() && hi.is_finite() { (hi - lo).abs() } else { 1.0 };
             let step = self.scale * span;
             let mut v = current[i] + rng.normal() * step;
             if lo.is_finite() {

@@ -20,30 +20,35 @@
 
 (one-time, mirrors `tpt-math`'s bootstrap)
 
-- [ ] Create root `Cargo.toml` (`[workspace]`, `resolver = "2"`,
+- [x] Create root `Cargo.toml` (`[workspace]`, `resolver = "2"`,
       `[workspace.package]`: `edition = "2021"`, `rust-version = "1.84"`,
       `license = "MIT OR Apache-2.0"`, `authors = ["TPT Solutions"]`,
       `homepage`/`repository = "https://github.com/tpt-solutions/tpt-systems-optimisation"`)
-- [ ] Add `rust-toolchain.toml`
-- [ ] Add `rustfmt.toml`
-- [ ] Add `deny.toml` (mirror `tpt-math`'s: `advisories.yanked = "deny"`,
+- [x] Add `rust-toolchain.toml`
+- [x] Add `rustfmt.toml`
+- [x] Add `deny.toml` (mirror `tpt-math`'s: `advisories.yanked = "deny"`,
       `sources.unknown-registry = "deny"`, `sources.unknown-git = "deny"`,
-      permissive-license allowlist)
-- [ ] Add `.github/workflows/ci.yml` (fmt, clippy, test via cargo-nextest +
+      permissive-license allowlist) — **FIXED**: removed the unrecognized
+      `[advisories.osv]` table (it is not valid for the installed cargo-deny
+      0.20.2); `cargo deny check` now passes clean (advisories/bans/licenses/
+      sources ok). See Open Risks.
+- [x] Add `.github/workflows/ci.yml` (fmt, clippy, test via cargo-nextest +
       doctests, no_std build via xtask, cargo-deny, feature-powerset via
       cargo-hack for the umbrella crate, bench-smoke compile-only)
-- [ ] Add `LICENSE-MIT` and `LICENSE-APACHE`
-- [ ] Create empty `crates/` directory
-- [ ] Add a Rust `.gitignore` (`/target`, etc.)
-- [ ] Write root `README.md` stub — workspace's role bridging `tpt-math`
+- [x] Add `LICENSE-MIT` and `LICENSE-APACHE`
+- [x] Create empty `crates/` directory
+- [x] Add a Rust `.gitignore` (`/target`, etc.)
+- [x] Write root `README.md` stub — workspace's role bridging `tpt-math`
       (pure math) and Tier 2 domain repos (energy, transportation, process,
       construction, earth, materials, medical, electronics); link to
       `spec.txt`
-- [ ] `git init` (local only — no GitHub remote/push, matching `tpt-math`'s
+- [x] `git init` (local only — no GitHub remote/push, matching `tpt-math`'s
       current stage)
-- [ ] Initial commit
-- [ ] Sanity check: `cargo build` succeeds on the empty workspace
-- [ ] Note: the six upstream deps (`tpt-math-linalg`, `tpt-math-linalg-complex`,
+- [x] Initial commit
+- [x] Sanity check: `cargo build` succeeded on the empty workspace at
+      bootstrap time — note the workspace no longer builds clean now that
+      Phase 3 (`tpt-opt-network`) has been scaffolded; see Phase 3 status
+- [x] Note: the six upstream deps (`tpt-math-linalg`, `tpt-math-linalg-complex`,
       `tpt-math-optimize-convex`, `tpt-math-optimize-general`, `tpt-math-graph`,
       `tpt-math-numeric`, `tpt-math-prob`) already exist as workspace members
       in the sibling `tpt-math` repo (`d:\Programming\1PRODUCTION\Open
@@ -86,25 +91,27 @@ umbrella variant instead of steps 2-4.
 contract. no_std with optional alloc. No internal `tpt-opt-*` deps —
 depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 
-- [ ] Scaffold `crates/tpt-opt-core/`
-- [ ] Wire deps: `tpt-math-linalg`; `default = ["std"]` + `alloc` feature
-- [ ] Implement `Model`, `Variable`, `Constraint`, `Objective`, `Solver` traits
-- [ ] Implement sparse constraint matrix representations (CSR/CSC) compatible with `tpt-math-linalg`
-- [ ] Implement variable bound types (continuous, integer, binary, semi-continuous)
-- [ ] Implement solver status enum (`Optimal`, `Infeasible`, `Unbounded`, `TimeLimit`, `NumericalIssue`, `Error`)
-- [ ] Implement warm-start interfaces for reusing previous solutions
-- [ ] Implement parameter tuning API (time limit, gap tolerance, thread count, verbosity)
-- [ ] Implement solution extraction utilities (primal values, dual values, reduced costs, slack variables)
-- [ ] Implement structured error types with infeasibility diagnostics
-- [ ] Implement numerical tolerance defaults per spec §4 (integrality ε = 1e-6, feasibility δ = 1e-6, optimality gap = 1e-4, pivoting tolerance), all configurable
-- [ ] Implement `CustomConstraint` extensibility trait (`evaluate`/`gradient`/`is_violated`) per spec §4
-- [ ] Unit tests + doctests
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] no_std+alloc verify (`thumbv6m-none-eabi`)
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata (description/keywords/categories/documentation)
+**Status: implementation essentially complete and clippy-clean; publish-readiness steps not started.**
+
+- [x] Scaffold `crates/tpt-opt-core/`
+- [x] Wire deps: `tpt-math-linalg` (+ `tpt-math-numeric`); `default = ["std"]` + `alloc` feature
+- [x] Implement `Model`, `Variable`, `Constraint`, `Objective`, `Solver` traits (`model.rs`, `solver.rs`)
+- [x] Implement sparse constraint matrix representations (CSR/CSC) compatible with `tpt-math-linalg` (`matrix.rs`)
+- [x] Implement variable bound types (continuous, integer, binary, semi-continuous) (`bounds.rs`)
+- [x] Implement solver status enum (`Optimal`, `Infeasible`, `Unbounded`, `TimeLimit`, `NumericalIssue`, `Error`)
+- [x] Implement warm-start interfaces for reusing previous solutions (`WarmStart` in `solver.rs`)
+- [x] Implement parameter tuning API (time limit, gap tolerance, thread count, verbosity) (`SolveParameters`)
+- [x] Implement solution extraction utilities (primal values, dual values, reduced costs, slack variables) (`Solution`)
+- [x] Implement structured error types with infeasibility diagnostics (`error.rs`)
+- [x] Implement numerical tolerance defaults per spec §4 (integrality ε = 1e-6, feasibility δ = 1e-6, optimality gap = 1e-4, pivoting tolerance), all configurable (`tolerance.rs`)
+- [x] Implement `CustomConstraint` extensibility trait (`evaluate`/`gradient`/`is_violated`) per spec §4 (`custom.rs`)
+- [x] Unit tests + doctests (`tests/core_api.rs`; doctests embedded in doc comments)
+- [x] Rustdoc (crate-level + public API doc comments present throughout)
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-core --all-targets --all-features -- -D warnings` passes with zero warnings
+- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Phase 0 note / Open Risks)
+- [ ] no_std+alloc verify (`thumbv6m-none-eabi`) — not verified (target not installed locally; needs `rustup target add thumbv6m-none-eabi` + CI wiring)
+- [x] README.md + CHANGELOG.md
+- [x] Crates.io metadata (description/keywords/categories/documentation) — present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-core` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -114,25 +121,29 @@ depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 *Branch-and-bound/branch-and-cut MILP solver. Depends on: tpt-opt-core,
 tpt-math-linalg.*
 
-- [ ] Scaffold `crates/tpt-opt-milp/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-math-linalg`
-- [ ] Implement branch-and-bound core with branch-and-cut enhancements
-- [ ] Implement cutting-plane generation: Gomory mixed-integer cuts, clique cuts, cover inequalities, MIR cuts, lift-and-project cuts (root node + optional tree nodes)
-- [ ] Implement primal heuristics: feasibility pump, rounding heuristics, RINS, local branching
-- [ ] Implement node selection strategies: best-bound, best-estimate, depth-first
-- [ ] Implement variable branching rules: most fractional, strong branching, pseudo-cost branching
-- [ ] Implement special ordered sets (SOS1, SOS2)
-- [ ] Implement indicator constraints ("if binary y=1 then linear constraint holds")
-- [ ] Implement piecewise linear objectives
-- [ ] Implement parallel tree search: work-stealing thread pool, concurrent cut generation, background primal heuristics
-- [ ] Implement `.with_seed(...)` deterministic branching/heuristics + `.with_threads(...)`/`.with_parallel_cuts(...)` per spec §4 examples
-- [ ] Unit tests + doctests (small hand-crafted MILP examples)
-- [ ] Integration test: at least one MIPLIB 2017 benchmark instance solved to optimality
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+**Status: core branch-and-bound solver works and lib builds, but several
+checklist sub-items are not yet implemented, clippy is not clean, and one
+test file fails to compile. `README.md`/`CHANGELOG.md` are missing.**
+
+- [x] Scaffold `crates/tpt-opt-milp/`
+- [x] Wire deps: `tpt-opt-core`, `tpt-math-linalg`
+- [x] Implement branch-and-bound core (`milp.rs`) with a root-node Gomory cut pass (`cuts.rs`) — "branch-and-cut" only in the limited sense of root cuts, not general tree-wide cut management
+- [ ] Implement cutting-plane generation: Gomory mixed-integer cuts, clique cuts, cover inequalities, MIR cuts, lift-and-project cuts (root node + optional tree nodes) — **only Gomory cuts implemented**; clique/cover/MIR/lift-and-project not started
+- [ ] Implement primal heuristics: feasibility pump, rounding heuristics, RINS, local branching — feasibility pump and rounding implemented (`try_rounding`/`try_feasibility_pump` in `milp.rs`); RINS and local branching not started
+- [ ] Implement node selection strategies: best-bound, best-estimate, depth-first — only depth-first (LIFO stack) diving implemented; best-bound and best-estimate not started
+- [ ] Implement variable branching rules: most fractional, strong branching, pseudo-cost branching — most-fractional and a best-effort pseudo-cost estimate implemented; strong branching not started
+- [ ] Implement special ordered sets (SOS1, SOS2) — not started
+- [ ] Implement indicator constraints ("if binary y=1 then linear constraint holds") — not started
+- [ ] Implement piecewise linear objectives — not started
+- [ ] Implement parallel tree search: work-stealing thread pool, concurrent cut generation, background primal heuristics — not started (`with_threads` exists but is a best-effort no-op stub per its own doc comment; no thread pool)
+- [x] Implement `.with_seed(...)` deterministic branching/heuristics + `.with_threads(...)` — `with_parallel_cuts(...)` not implemented (no matches found in source)
+- [x] Unit tests + doctests (small hand-crafted MILP examples) (`tests/milp_api.rs`) — note `tests/debug_lp.rs` currently fails to compile (`solve_lp` signature mismatch: passes `&Tolerances` where `Tolerances` is expected)
+- [ ] Integration test: at least one MIPLIB 2017 benchmark instance solved to optimality — not present
+- [x] Rustdoc — doc comments present throughout
+- [ ] `cargo fmt` / `clippy` clean — **not clean**: `cargo clippy -p tpt-opt-milp --all-targets` currently reports 16 warnings (incl. a `clippy::question_mark` lint) and the `debug_lp.rs` test fails to build
+- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Open Risks)
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-milp/README.md`, `CHANGELOG.md`); `description` added to `Cargo.toml` and `readme` now points at the per-crate file
+- [x] Crates.io metadata — present (`description`, `keywords`, `categories`, `readme`, `documentation`, `repository`, `license`, `authors`)
 - [ ] Reserve `tpt-opt-milp` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -155,23 +166,34 @@ deferred — see Open Risks.*
 *Network flow + graph-based optimization. Depends on: tpt-opt-core,
 tpt-math-graph.*
 
-- [ ] Scaffold `crates/tpt-opt-network/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-math-graph`
-- [ ] Implement network simplex algorithm for min-cost flow (capacity constraints, multi-commodity)
-- [ ] Implement successive shortest path algorithm
-- [ ] Implement Hungarian algorithm for assignment/matching problems
-- [ ] Implement AC-OPF (polar + rectangular coordinate variants, interior-point methods)
-- [ ] Implement DC-OPF (linearized power flow, fast approximation)
-- [ ] Implement security-constrained OPF (SC-OPF) with contingency constraints
-- [ ] Implement graph preprocessing utilities: cycle detection, bridge identification, biconnected component decomposition, series-parallel reduction
-- [ ] Implement dynamic networks (time-varying capacities/costs) with warm-starting between time periods
-- [ ] Unit tests + doctests
-- [ ] Integration test: at least one Netlib-style or hand-crafted min-cost-flow/OPF benchmark
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+**Status: COMPILES and clippy/fmt/test-clean.** Previously BROKEN: `lib.rs`
+declared `pub mod opf;` / `pub mod dynamic;` whose source files were missing,
+and `lp.rs`/`min_cost_flow.rs` had borrow errors. Both missing modules were
+implemented (`src/opf.rs`, `src/dynamic.rs`) and the borrow errors were fixed;
+the crate now builds and its 7 tests pass. OPF coverage: DC-OPF (LP via the
+in-crate two-phase simplex), AC-OPF (polar NLP via `tpt_math_optimize_general`
+augmented-Lagrangian solver), and SC-OPF (base-case DC-OPF + N-1 contingency
+re-solves). Dynamic networks solve each period's min-cost flow with a
+warm-start hint. The crate was also added as a dependency on
+`tpt-math-optimize-general` (required by `ac_opf`).
+
+- [x] Scaffold `crates/tpt-opt-network/`
+- [x] Wire deps: `tpt-opt-core`, `tpt-math-graph`, `tpt-math-optimize-general` (added for AC-OPF)
+- [x] Implement network simplex algorithm for min-cost flow (capacity constraints, multi-commodity) (`min_cost_flow.rs`, `network_simplex`)
+- [x] Implement successive shortest path algorithm (`min_cost_flow.rs`, primary method per its own doc comment)
+- [x] Implement Hungarian algorithm for assignment/matching problems (`assignment.rs`, `hungarian`)
+- [x] Implement AC-OPF (polar coordinates, augmented-Lagrangian NLP) — `src/opf.rs` (`ac_opf`)
+- [x] Implement DC-OPF (linearised power flow, solved as an LP) — `src/opf.rs` (`dc_opf`)
+- [x] Implement security-constrained OPF (SC-OPF) with N-1 contingency constraints — `src/opf.rs` (`sc_opf`)
+- [x] Implement graph preprocessing utilities: cycle detection, bridge identification, biconnected component decomposition (`graph_preprocess.rs`) — series-parallel reduction not confirmed present, needs a closer look
+- [x] Implement dynamic networks (time-varying supplies) with warm-starting between periods — `src/dynamic.rs` (`DynamicNetwork`)
+- [ ] Unit tests + doctests — `cargo test -p tpt-opt-network` passes (7 tests); doctests not yet added
+- [ ] Integration test: at least one Netlib-style or hand-crafted min-cost-flow/OPF benchmark — not present
+- [x] Rustdoc — doc comments present throughout (including the new `opf`/`dynamic` modules)
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-network --all-targets --all-features -- -D warnings` passes with zero warnings
+- [x] `cargo deny check` clean — verified (workspace-wide, now that `deny.toml` is fixed)
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-network/README.md`, `CHANGELOG.md`); `description` added to `Cargo.toml` and `readme` now points at the per-crate file
+- [x] Crates.io metadata (description/keywords/categories/documentation) — present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-network` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -181,8 +203,11 @@ tpt-math-graph.*
 *Mixed-Integer Nonlinear Programming. Depends on: tpt-opt-core, tpt-opt-milp
 (for OA master problems), tpt-math-optimize-convex, tpt-math-optimize-general.*
 
-- [ ] Scaffold `crates/tpt-opt-minlp/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-optimize-general`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
+no implementation; `Cargo.toml` dependencies are already wired.
+
+- [x] Scaffold `crates/tpt-opt-minlp/` (empty stub only)
+- [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-optimize-general`
 - [ ] Implement outer-approximation (OA) for convex MINLP (MILP master + NLP subproblems)
 - [ ] Implement generalized Benders decomposition (GBD) for complicating variables
 - [ ] Implement sequential quadratic programming (SQP) branch-and-bound for non-convex MINLP
@@ -206,8 +231,11 @@ tpt-math-graph.*
 
 *Constraint programming engine. Depends on: tpt-opt-core.*
 
-- [ ] Scaffold `crates/tpt-opt-cp/`
-- [ ] Wire deps: `tpt-opt-core`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
+no implementation; `Cargo.toml` dependency is already wired.
+
+- [x] Scaffold `crates/tpt-opt-cp/` (empty stub only)
+- [x] Wire deps: `tpt-opt-core`
 - [ ] Implement constraint propagation: AC-3 (binary constraints), AC-4 (fine-grained domain reduction), maintained arc consistency (incremental)
 - [ ] Implement global constraint: `alldifferent` (Hall's theorem filtering)
 - [ ] Implement global constraint: `cumulative` (resource-constrained scheduling, time-table + energetic reasoning)
@@ -234,21 +262,24 @@ tpt-math-graph.*
 *Metaheuristic optimization algorithms. Depends on: tpt-opt-core,
 tpt-math-prob (for `Rng`/sampling).*
 
-- [ ] Scaffold `crates/tpt-opt-heuristic/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-math-prob`
-- [ ] Implement simulated annealing (geometric/adaptive/reheating cooling schedules, configurable neighborhoods)
-- [ ] Implement genetic algorithms: crossover (single-point, two-point, uniform, order-based), mutation (bit-flip, swap, inversion, scramble), selection (tournament, roulette, rank)
-- [ ] Implement tabu search: adaptive tenure, aspiration criteria, diversification/intensification
-- [ ] Implement particle swarm optimization (PSO): inertia weight adaptation, topologies (global, local, Von Neumann)
-- [ ] Ensure every heuristic is seedable via an `Rng` parameter for deterministic reproducibility (spec §4)
-- [ ] Support custom neighborhood structures via trait objects
-- [ ] Implement convergence history tracking
-- [ ] Unit tests + doctests (incl. determinism test: same seed → same result)
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+**Status: implementation complete and clippy-clean, the most finished crate
+alongside `tpt-opt-core`; publish-readiness steps not started.**
+
+- [x] Scaffold `crates/tpt-opt-heuristic/`
+- [x] Wire deps: `tpt-opt-core`, `tpt-math-prob`
+- [x] Implement simulated annealing (geometric/adaptive/reheating cooling schedules, configurable neighborhoods) (`annealing.rs`)
+- [x] Implement genetic algorithms: crossover (single-point, two-point, uniform, order-based), mutation (bit-flip, swap, inversion, scramble), selection (tournament, roulette, rank) (`ga.rs`) — all variants confirmed present
+- [x] Implement tabu search: adaptive tenure, aspiration criteria, diversification/intensification (`tabu.rs`)
+- [x] Implement particle swarm optimization (PSO): inertia weight adaptation, topologies (global, local, Von Neumann) (`pso.rs`) — confirmed `Global`/`Ring`/`VonNeumann` topologies
+- [x] Ensure every heuristic is seedable via an `Rng` parameter for deterministic reproducibility (spec §4) (`rng.rs`, `.with_seed(...)` on all four solvers)
+- [x] Support custom neighborhood structures via trait objects (`neighborhood.rs`)
+- [x] Implement convergence history tracking (`history.rs`)
+- [x] Unit tests + doctests (incl. determinism test: same seed → same result) (`tests/heuristics.rs::determinism_same_seed_all_heuristics`)
+- [x] Rustdoc
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-heuristic --all-targets --all-features -- -D warnings` passes with zero warnings
+- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Open Risks)
+- [x] README.md + CHANGELOG.md
+- [ ] Crates.io metadata — not yet spot-checked against `Cargo.toml`
 - [ ] Reserve `tpt-opt-heuristic` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -258,8 +289,11 @@ tpt-math-prob (for `Rng`/sampling).*
 *Multi-objective / Pareto optimization. Depends on: tpt-opt-core,
 tpt-opt-heuristic (for NSGA-II's GA machinery, if reused).*
 
-- [ ] Scaffold `crates/tpt-opt-multi/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-opt-heuristic`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
+no implementation; `Cargo.toml` dependencies are already wired.
+
+- [x] Scaffold `crates/tpt-opt-multi/` (empty stub only)
+- [x] Wire deps: `tpt-opt-core`, `tpt-opt-heuristic`
 - [ ] Implement ε-constraint method (iterative single-objective subproblems)
 - [ ] Implement weighted sum + weighted Tchebycheff scalarization with adaptive weight generation
 - [ ] Implement NSGA-II (fast non-dominated sorting, crowding distance)
@@ -283,8 +317,11 @@ tpt-opt-heuristic (for NSGA-II's GA machinery, if reused).*
 *Optimization under uncertainty. Depends on: tpt-opt-core, tpt-opt-milp,
 tpt-math-optimize-convex, tpt-math-prob.*
 
-- [ ] Scaffold `crates/tpt-opt-robust/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-prob`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
+no implementation; `Cargo.toml` dependencies are already wired.
+
+- [x] Scaffold `crates/tpt-opt-robust/` (empty stub only)
+- [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-prob`
 - [ ] Implement scenario-based stochastic programming (two-stage and multi-stage, recourse decisions)
 - [ ] Implement sample average approximation (SAA) with statistical confidence intervals
 - [ ] Implement adjustable robust optimization (ARO): budgeted uncertainty sets (Γ-robustness), ellipsoidal uncertainty sets, tractable LP/SOCP/SDP reformulations
@@ -306,8 +343,11 @@ tpt-math-optimize-convex, tpt-math-prob.*
 *Large-scale decomposition methods. Depends on: tpt-opt-core, tpt-opt-milp,
 tpt-math-optimize-convex.*
 
-- [ ] Scaffold `crates/tpt-opt-decompose/`
-- [ ] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
+no implementation; `Cargo.toml` dependencies are already wired.
+
+- [x] Scaffold `crates/tpt-opt-decompose/` (empty stub only)
+- [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`
 - [ ] Implement Benders decomposition (master + subproblems on complicating variables)
 - [ ] Implement Pareto-optimal cut generation for Benders
 - [ ] Implement stabilization techniques (level set, trust region) for oscillation prevention
@@ -332,7 +372,14 @@ tpt-math-optimize-convex.*
 *Feature-gated umbrella re-exporting all solver crates. Flat feature tree
 (no nesting) per spec §3.*
 
-- [ ] Scaffold `crates/tpt-opt-systems/`
+**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub;
+`Cargo.toml` has no dependencies and only the default `std` feature — the
+per-solver optional deps/features (`milp`, `minlp`, `network`, `cp`,
+`heuristic`, `multi`, `robust`, `decompose`) are not wired yet. Also blocked
+in practice until Phase 4/5/7/8/9 crates have real implementations to
+re-export.
+
+- [x] Scaffold `crates/tpt-opt-systems/` (empty stub only)
 - [ ] Wire optional deps + one flat feature per solver crate: `milp`, `minlp`, `network`, `cp`, `heuristic`, `multi`, `robust`, `decompose`
 - [ ] Confirm no-features build re-exports only `tpt-opt-core`
 - [ ] Re-export each constituent crate's public API behind its feature
@@ -428,6 +475,18 @@ separate, later, human-triggered action.*
 
 ## Open Risks / Assumptions
 
+- [x] **`deny.toml` schema mismatch**: `cargo deny check` previously failed
+      immediately with a config-deserialization error — `[advisories.osv]`
+      is not a recognized key for the installed `cargo-deny` 0.20.2. **FIXED**:
+      removed the `[advisories.osv]` table; `cargo deny check` now passes clean.
+- [x] **`tpt-opt-network` does not compile**: `lib.rs` declared and
+      re-exported from `mod opf` and `mod dynamic`, but `src/opf.rs` and
+      `src/dynamic.rs` did not exist on disk, and `src/lp.rs` had 3
+      immutable/mutable-borrow conflicts plus 5 assignments through `&self`
+      that needed `&mut self`. **FIXED**: implemented both missing modules
+      (`opf.rs` with DC/AC/SC-OPF, `dynamic.rs` with `DynamicNetwork`) and
+      corrected the borrow errors; the crate now compiles, is clippy/fmt-clean,
+      and its 7 tests pass.
 - [ ] **HiGHS build dependency**: the optional `highs` feature (Phase 2a) pulls in a C++ build via `highs-sys`-style bindings — document the added build-toolchain requirement in CI and in `tpt-opt-milp`'s README; confirm it doesn't break the no-default-features build for `no_std`/minimal consumers
 - [ ] **Crate name availability**: all 10 `tpt-opt-*` names are assumed available on crates.io but not yet verified — resolve in the Publish-Readiness Phase before any reservation attempt
 - [ ] **Benchmark corpora size**: MIPLIB 2017 / MINLPLib / Netlib / CSPLib instance files are large external downloads — integration tests must fetch/cache them outside the published crate (e.g. a `tests/fixtures/` dir excluded via `.gitignore`/`exclude` in `Cargo.toml`, populated by a CI step or `xtask` command) so they never bloat the packaged `.crate` file

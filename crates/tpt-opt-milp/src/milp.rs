@@ -1,5 +1,5 @@
-//! Branch-and-bound / branch-and-cut MILP solver built on the simplex LP
-//! relaxation in [`lp`].
+//! Branch-and-bound / branch-and-cut MILP solver built on an internal simplex
+//! LP relaxation.
 //!
 //! The [`MilpSolver`] implements [`tpt_opt_core::solver::Solver<Model>`] with
 //! deterministic, seedable behaviour. It supports most-fractional and
@@ -14,9 +14,7 @@ use std::vec::Vec;
 
 use tpt_opt_core::{
     model::{Model, Sense},
-    solver::{
-        SolveParameters, Solution, Solver, SolverStatus, WarmStart,
-    },
+    solver::{Solution, SolveParameters, Solver, SolverStatus, WarmStart},
     tolerance::Tolerances,
     OptError,
 };
@@ -160,21 +158,19 @@ impl Ord for Node {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse for min-heap semantics on bound (lower bound = higher
         // priority for minimisation; we flip in usage).
-        self.bound
-            .partial_cmp(&other.bound)
-            .unwrap_or(Ordering::Equal)
+        self.bound.partial_cmp(&other.bound).unwrap_or(Ordering::Equal)
     }
 }
 
 /// Small deterministic RNG (LCG) so heuristics are reproducible for a seed.
+#[allow(dead_code)]
 struct Lcg {
     state: u64,
 }
+#[allow(dead_code)]
 impl Lcg {
     fn new(seed: u64) -> Self {
-        Self {
-            state: seed ^ 0x9E37_79B9_7F4A_7C15,
-        }
+        Self { state: seed ^ 0x9E37_79B9_7F4A_7C15 }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -187,9 +183,7 @@ impl Lcg {
 
 impl Solver<Model> for MilpSolver {
     fn solve(&mut self, model: &Model) -> Result<Solution, OptError> {
-        if let Err(e) = model.validate() {
-            return Err(e);
-        }
+        model.validate()?;
         let start = Instant::now();
         let n = model.num_vars;
         let sense = model.objective.sense;
@@ -212,11 +206,11 @@ impl Solver<Model> for MilpSolver {
         let tol = self.params.tolerances;
 
         // Root LP (with optional root cuts).
-        let mut root = solve_lp_state(model, &lb, &ub, &tol);
+        let mut root = solve_lp_state(model, &lb, &ub, tol);
         if self.use_cuts {
             let ints = int_vars.clone();
             let seed_snapshot = root.clone();
-            let added = crate::cuts::add_gomory_cuts(&mut root, &ints, &tol, 10);
+            let added = crate::cuts::add_gomory_cuts(&mut root, &ints, tol, 10);
             if added > 0 {
                 // Safety: a valid cut can only tighten the relaxation. If it
                 // worsened the bound, invalidated feasibility, or made the root
@@ -239,18 +233,14 @@ impl Solver<Model> for MilpSolver {
         }
 
         // Primal heuristics at the root.
-        self.try_rounding(model, &lb, &ub, &tol, &mut Lcg::new(self.seed));
-        self.try_feasibility_pump(model, &lb, &ub, &tol, &mut Lcg::new(self.seed.wrapping_add(1)));
+        self.try_rounding(model, &lb, &ub, tol, &mut Lcg::new(self.seed));
+        self.try_feasibility_pump(model, &lb, &ub, tol, &mut Lcg::new(self.seed.wrapping_add(1)));
 
         // Branch-and-bound.
         let mut heap: BinaryHeap<Node> = BinaryHeap::new();
         let mut stack: Vec<Node> = Vec::new();
-        let root_node = Node {
-            lb: lb.clone(),
-            ub: ub.clone(),
-            bound: root.sol.objective,
-            depth: 0,
-        };
+        let root_node =
+            Node { lb: lb.clone(), ub: ub.clone(), bound: root.sol.objective, depth: 0 };
         match self.selection {
             NodeSelection::BestBound => heap.push(root_node),
             NodeSelection::DepthFirst => stack.push(root_node),
@@ -270,6 +260,11 @@ impl Solver<Model> for MilpSolver {
             };
             nodes_explored += 1;
 
+            if nodes_explored > 200_000 {
+                time_limit_hit = true;
+                break;
+            }
+
             if self.timed_out(start) {
                 time_limit_hit = true;
                 break;
@@ -286,7 +281,7 @@ impl Solver<Model> for MilpSolver {
                 }
             }
 
-            let lp = solve_lp(model, &node.lb, &node.ub, &tol);
+            let lp = solve_lp(model, &node.lb, &node.ub, tol);
             if lp.status != LpStatus::Optimal {
                 continue;
             }
@@ -338,7 +333,7 @@ impl Solver<Model> for MilpSolver {
 
             // Periodically try a rounding heuristic with tightened bounds.
             if nodes_explored % 8 == 0 {
-                self.try_fix_and_solve(model, &node.lb, &node.ub, &tol);
+                self.try_fix_and_solve(model, &node.lb, &node.ub, tol);
             }
         }
 
@@ -370,11 +365,10 @@ impl Solver<Model> for MilpSolver {
 
     fn warm_start(&mut self, w: WarmStart) -> Result<(), OptError> {
         if let Some(primal) = w.primal {
-            if let Some(o) = self.incumbent_obj {
-                let _ = (primal, o);
-            }
             self.incumbent_x = Some(primal);
-            self.incumbent_obj = Some(0.0); // unknown; will be overwritten if better
+            if self.incumbent_obj.is_none() {
+                self.incumbent_obj = Some(0.0); // unknown; will be overwritten if better
+            }
         }
         Ok(())
     }
@@ -405,12 +399,7 @@ impl MilpSolver {
 
     /// Return the most-fractional integer variable and its distance to integer,
     /// or `None` if all integer variables are integral.
-    fn most_fractional(
-        &self,
-        x: &[f64],
-        int_vars: &[usize],
-        tol: f64,
-    ) -> Option<(usize, f64)> {
+    fn most_fractional(&self, x: &[f64], int_vars: &[usize], tol: f64) -> Option<(usize, f64)> {
         let mut best: Option<(usize, f64)> = None;
         for &i in int_vars {
             let f = x[i] - x[i].floor();
@@ -425,12 +414,18 @@ impl MilpSolver {
         best
     }
 
-    fn try_rounding(&mut self, model: &Model, lb: &[f64], ub: &[f64], tol: &Tolerances, _rng: &mut Lcg) {
-        let lp = solve_lp(model, lb, ub, &tol);
+    fn try_rounding(
+        &mut self,
+        model: &Model,
+        lb: &[f64],
+        ub: &[f64],
+        tol: Tolerances,
+        _rng: &mut Lcg,
+    ) {
+        let lp = solve_lp(model, lb, ub, tol);
         if lp.status != LpStatus::Optimal {
             return;
         }
-        let n = model.num_vars;
         let mut cand = lp.x.clone();
         for (i, v) in model.variables.iter().enumerate() {
             if v.bound.is_integral() {
@@ -449,12 +444,19 @@ impl MilpSolver {
         }
     }
 
-    fn try_feasibility_pump(&mut self, model: &Model, lb: &[f64], ub: &[f64], tol: &Tolerances, _rng: &mut Lcg) {
+    fn try_feasibility_pump(
+        &mut self,
+        model: &Model,
+        lb: &[f64],
+        ub: &[f64],
+        tol: Tolerances,
+        _rng: &mut Lcg,
+    ) {
         let mut cand_lb = lb.to_vec();
         let mut cand_ub = ub.to_vec();
         let mut rounded = None;
         for _iter in 0..5 {
-            let lp = solve_lp(model, &cand_lb, &cand_ub, &tol);
+            let lp = solve_lp(model, &cand_lb, &cand_ub, tol);
             if lp.status != LpStatus::Optimal {
                 break;
             }
@@ -487,8 +489,8 @@ impl MilpSolver {
         }
     }
 
-    fn try_fix_and_solve(&mut self, model: &Model, lb: &[f64], ub: &[f64], tol: &Tolerances) {
-        let lp = solve_lp(model, lb, ub, &tol);
+    fn try_fix_and_solve(&mut self, model: &Model, lb: &[f64], ub: &[f64], tol: Tolerances) {
+        let lp = solve_lp(model, lb, ub, tol);
         if lp.status != LpStatus::Optimal {
             return;
         }
@@ -502,7 +504,7 @@ impl MilpSolver {
                 fix_ub[i] = rv;
             }
         }
-        let lp2 = solve_lp(model, &fix_lb, &fix_ub, &tol);
+        let lp2 = solve_lp(model, &fix_lb, &fix_ub, tol);
         if lp2.status == LpStatus::Optimal && feasible(model, &lp2.x, tol.feasibility) {
             let obj = eval_obj(model, &lp2.x);
             if self.is_better_incumbent(obj, model.objective.sense) {
@@ -523,12 +525,12 @@ fn bound_pair(v: &tpt_opt_core::model::Variable) -> (f64, f64) {
 /// Evaluate whether `x` satisfies all constraints within `tol`.
 fn feasible(model: &Model, x: &[f64], tol: f64) -> bool {
     for c in &model.constraints {
-        if !c.is_satisfied(x, &tol) {
+        if !c.is_satisfied(x, tol) {
             return false;
         }
     }
     for (i, v) in model.variables.iter().enumerate() {
-        if !v.bound.feasible(x[i], &tol) {
+        if !v.bound.feasible(x[i], tol) {
             return false;
         }
     }

@@ -8,11 +8,11 @@
 
 extern crate alloc;
 
-mod csr;
 mod csc;
+mod csr;
 
-pub use csr::CsrMatrix;
 pub use csc::CscMatrix;
+pub use csr::CsrMatrix;
 
 /// A (row, col, value) triplet used to build sparse matrices incrementally.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,7 +49,5 @@ pub fn all_close(a: &[f64], b: &[f64], tol: f64) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter()
-        .zip(b.iter())
-        .all(|(x, y)| (x - y).abs() <= tol)
+    a.iter().zip(b.iter()).all(|(x, y)| (x - y).abs() <= tol)
 }

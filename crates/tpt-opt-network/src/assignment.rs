@@ -84,9 +84,12 @@ pub fn hungarian(cost: &[Vec<f64>]) -> AssignmentResult {
 
     let mut assignment = vec![0usize; n];
     let mut total = 0.0f64;
-    for j in 1..=n {
-        if p[j] != 0 {
-            let r = p[j] - 1;
+    for (j, &pj) in p.iter().enumerate() {
+        if j == 0 {
+            continue;
+        }
+        if pj != 0 {
+            let r = pj - 1;
             assignment[r] = j - 1;
             // Only count real (non-padded) entries.
             if r < rows && (j - 1) < cols {
@@ -101,7 +104,7 @@ pub fn hungarian(cost: &[Vec<f64>]) -> AssignmentResult {
 /// Solve the assignment problem (maximisation) by negating costs.
 pub fn hungarian_maximize(cost: &[Vec<f64>]) -> AssignmentResult {
     let rows = cost.len();
-    let cols = cost.first().map_or(0, |r| r.len());
+    let _cols = cost.first().map_or(0, |r| r.len());
     let mut neg: Vec<Vec<f64>> = Vec::with_capacity(rows);
     for r in cost {
         neg.push(r.iter().map(|&x| -x).collect());

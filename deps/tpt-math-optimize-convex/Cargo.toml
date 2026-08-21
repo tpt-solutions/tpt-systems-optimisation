@@ -9,5 +9,5 @@ description = "Local dev shim mirroring tpt-math-optimize-convex: convex QP/SOCP
 publish = false
 
 [dependencies]
-tpt-math-optimize-general = { path = "../tpt-math-optimize-general" }
-tpt-math-numeric = { path = "../tpt-math-numeric" }
+tpt-math-optimize-general = { path = "../tpt-math-optimize-general", version = "0.1.0" }
+tpt-math-numeric = { path = "../tpt-math-numeric", version = "0.1.0" }

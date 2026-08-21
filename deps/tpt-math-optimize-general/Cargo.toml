@@ -9,4 +9,4 @@ description = "Local dev shim mirroring tpt-math-optimize-general: a general non
 publish = false
 
 [dependencies]
-tpt-math-numeric = { path = "../tpt-math-numeric" }
+tpt-math-numeric = { path = "../tpt-math-numeric", version = "0.1.0" }

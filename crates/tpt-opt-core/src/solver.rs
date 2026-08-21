@@ -137,29 +137,17 @@ pub struct WarmStart {
 impl WarmStart {
     /// Warm-start from a primal point only.
     pub fn primal(values: Vec<f64>) -> Self {
-        Self {
-            primal: Some(values),
-            dual: None,
-            status: None,
-        }
+        Self { primal: Some(values), dual: None, status: None }
     }
 
     /// Warm-start from dual values only.
     pub fn dual(values: Vec<f64>) -> Self {
-        Self {
-            primal: None,
-            dual: Some(values),
-            status: None,
-        }
+        Self { primal: None, dual: Some(values), status: None }
     }
 
     /// An empty (no-op) warm start.
     pub fn empty() -> Self {
-        Self {
-            primal: None,
-            dual: None,
-            status: None,
-        }
+        Self { primal: None, dual: None, status: None }
     }
 
     /// `true` if there is nothing to reuse.

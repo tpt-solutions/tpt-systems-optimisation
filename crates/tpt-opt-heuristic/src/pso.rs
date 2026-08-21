@@ -44,11 +44,7 @@ impl InertiaSchedule {
 
     /// Adaptive schedule with sensible defaults.
     pub fn adaptive(start: f64) -> Self {
-        InertiaSchedule::Adaptive {
-            start,
-            min: 0.1,
-            adapt: 1.02,
-        }
+        InertiaSchedule::Adaptive { start, min: 0.1, adapt: 1.02 }
     }
 }
 
@@ -356,15 +352,17 @@ fn build_topology(topology: Topology, swarm: usize) -> Vec<Vec<usize>> {
             let all: Vec<usize> = (0..swarm).collect();
             vec![all; swarm]
         }
-        Topology::Ring => (0..swarm)
-            .map(|i| {
-                if swarm <= 1 {
-                    vec![i]
-                } else {
-                    vec![(i + swarm - 1) % swarm, (i + 1) % swarm]
-                }
-            })
-            .collect(),
+        Topology::Ring => {
+            (0..swarm)
+                .map(|i| {
+                    if swarm <= 1 {
+                        vec![i]
+                    } else {
+                        vec![(i + swarm - 1) % swarm, (i + 1) % swarm]
+                    }
+                })
+                .collect()
+        }
         Topology::VonNeumann => {
             if swarm == 0 {
                 return Vec::new();
@@ -405,12 +403,10 @@ mod tests {
 
     #[test]
     fn determinism_same_seed() {
-        let obj = ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3]);
-        let build = || {
-            ParticleSwarmOptimization::new(obj.clone())
-                .with_seed(55)
-                .with_iterations(500)
-        };
+        let obj =
+            ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3]);
+        let build =
+            || ParticleSwarmOptimization::new(obj.clone()).with_seed(55).with_iterations(500);
         let a = build().solve().unwrap();
         let b = build().solve().unwrap();
         assert_eq!(a, b);
@@ -418,7 +414,8 @@ mod tests {
 
     #[test]
     fn converges_on_sphere() {
-        let obj = ObjectiveFn::minimize(5, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 5]);
+        let obj =
+            ObjectiveFn::minimize(5, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-2.0, 2.0); 5]);
         let mut pso = ParticleSwarmOptimization::new(obj)
             .with_seed(8)
             .with_swarm_size(50)
@@ -430,7 +427,11 @@ mod tests {
 
     #[test]
     fn ring_and_von_neumann_topologies() {
-        let obj = ObjectiveFn::minimize(2, |x| (x[0] - 1.0).powi(2) + (x[1] - 1.0).powi(2), [(0.0, 2.0); 2]);
+        let obj = ObjectiveFn::minimize(
+            2,
+            |x| (x[0] - 1.0).powi(2) + (x[1] - 1.0).powi(2),
+            [(0.0, 2.0); 2],
+        );
         for topo in [Topology::Ring, Topology::VonNeumann] {
             let mut pso = ParticleSwarmOptimization::new(obj.clone())
                 .with_seed(2)

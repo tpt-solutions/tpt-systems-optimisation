@@ -6,7 +6,9 @@
 //! a fixed seed.
 
 use tpt_math_prob::Xoshiro256;
-use tpt_opt_core::{Model, OptError, Sense, SolveParameters, Solution, Solver, SolverStatus, WarmStart};
+use tpt_opt_core::{
+    Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
+};
 
 use crate::history::ConvergenceHistory;
 use crate::neighborhood::{GaussianNeighborhood, Neighborhood};
@@ -53,10 +55,7 @@ pub enum CoolingSchedule {
 impl CoolingSchedule {
     /// Geometric schedule with `T0 = 1.0`, `alpha = 0.95`.
     pub fn geometric(initial_temp: f64, alpha: f64) -> Self {
-        CoolingSchedule::Geometric {
-            initial_temp,
-            alpha,
-        }
+        CoolingSchedule::Geometric { initial_temp, alpha }
     }
 
     /// Adaptive schedule with sensible defaults.
@@ -71,12 +70,7 @@ impl CoolingSchedule {
 
     /// Reheating schedule with sensible defaults.
     pub fn reheating(initial_temp: f64, alpha: f64, reheat_every: usize) -> Self {
-        CoolingSchedule::Reheating {
-            initial_temp,
-            alpha,
-            reheat_temp: initial_temp,
-            reheat_every,
-        }
+        CoolingSchedule::Reheating { initial_temp, alpha, reheat_temp: initial_temp, reheat_every }
     }
 }
 
@@ -94,11 +88,7 @@ impl CoolingState {
             CoolingSchedule::Adaptive { initial_temp, .. } => *initial_temp,
             CoolingSchedule::Reheating { initial_temp, .. } => *initial_temp,
         };
-        Self {
-            schedule: *schedule,
-            iter: 0,
-            temp,
-        }
+        Self { schedule: *schedule, iter: 0, temp }
     }
 
     fn next(&mut self, accept_ratio: f64) -> f64 {
@@ -107,24 +97,14 @@ impl CoolingState {
             CoolingSchedule::Geometric { initial_temp, alpha } => {
                 self.temp = initial_temp * alpha.powi(self.iter as i32);
             }
-            CoolingSchedule::Adaptive {
-                min_temp,
-                accept_target,
-                adapt_rate,
-                ..
-            } => {
+            CoolingSchedule::Adaptive { min_temp, accept_target, adapt_rate, .. } => {
                 if accept_ratio > accept_target {
                     self.temp = (self.temp / adapt_rate).max(min_temp);
                 } else {
                     self.temp = (self.temp * adapt_rate).max(min_temp);
                 }
             }
-            CoolingSchedule::Reheating {
-                initial_temp,
-                alpha,
-                reheat_temp,
-                reheat_every,
-            } => {
+            CoolingSchedule::Reheating { initial_temp, alpha, reheat_temp, reheat_every } => {
                 if reheat_every > 0 && self.iter % reheat_every == 0 {
                     self.temp = reheat_temp.max(initial_temp);
                 } else {
@@ -220,14 +200,10 @@ impl SimulatedAnnealing {
         if self.objective.dim() == 0 {
             return Err(OptError::invalid_model("objective dimension is zero"));
         }
-        let bounds: Vec<(f64, f64)> = (0..self.objective.dim())
-            .map(|i| self.objective.bound(i))
-            .collect();
+        let bounds: Vec<(f64, f64)> =
+            (0..self.objective.dim()).map(|i| self.objective.bound(i)).collect();
         let default_nb = GaussianNeighborhood::new(bounds, 0.1);
-        let nb: &dyn Neighborhood = self
-            .neighborhood
-            .as_deref()
-            .unwrap_or(&default_nb);
+        let nb: &dyn Neighborhood = self.neighborhood.as_deref().unwrap_or(&default_nb);
         let result = anneal(
             &*self.objective,
             self.iterations,
@@ -277,11 +253,8 @@ pub(crate) fn anneal(
             Sense::Minimize => cand_val - current_val,
             Sense::Maximize => current_val - cand_val,
         };
-        let accept = if delta <= 0.0 {
-            true
-        } else {
-            rng.next_f64() < (-delta / cooler.temp).exp()
-        };
+        let accept =
+            if delta <= 0.0 { true } else { rng.next_f64() < (-delta / cooler.temp).exp() };
         if accept {
             current = candidate;
             current_val = cand_val;
@@ -315,14 +288,7 @@ pub(crate) fn anneal(
         _ => SolverStatus::TimeLimit,
     };
 
-    HeuristicResult {
-        best_x: best,
-        best_value: best_val,
-        status,
-        iterations,
-        seed,
-        history,
-    }
+    HeuristicResult { best_x: best, best_value: best_val, status, iterations, seed, history }
 }
 
 impl Solver<Model> for SimulatedAnnealing {
@@ -336,10 +302,7 @@ impl Solver<Model> for SimulatedAnnealing {
         }
         let bounds: Vec<(f64, f64)> = (0..obj.dim()).map(|i| obj.bound(i)).collect();
         let default_nb = GaussianNeighborhood::new(bounds, 0.1);
-        let nb: &dyn Neighborhood = self
-            .neighborhood
-            .as_deref()
-            .unwrap_or(&default_nb);
+        let nb: &dyn Neighborhood = self.neighborhood.as_deref().unwrap_or(&default_nb);
         let result = anneal(
             &obj,
             self.iterations,
@@ -399,7 +362,11 @@ mod tests {
     #[test]
     fn determinism_same_seed() {
         let build = || {
-            let obj = ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-5.0, 5.0); 3]);
+            let obj = ObjectiveFn::minimize(
+                3,
+                |x| x.iter().map(|v| v * v).sum::<f64>(),
+                [(-5.0, 5.0); 3],
+            );
             SimulatedAnnealing::new(obj).with_seed(123).with_iterations(500)
         };
         let a = build().solve().unwrap();
@@ -409,7 +376,8 @@ mod tests {
 
     #[test]
     fn converges_on_sphere() {
-        let obj = ObjectiveFn::minimize(5, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 5]);
+        let obj =
+            ObjectiveFn::minimize(5, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 5]);
         let mut sa = SimulatedAnnealing::new(obj)
             .with_seed(1)
             .with_cooling(CoolingSchedule::geometric(10.0, 0.97))
@@ -420,7 +388,11 @@ mod tests {
 
     #[test]
     fn reheating_schedule_works() {
-        let obj = ObjectiveFn::minimize(2, |x| (x[0] - 1.0).powi(2) + (x[1] + 1.0).powi(2), [(-5.0, 5.0); 2]);
+        let obj = ObjectiveFn::minimize(
+            2,
+            |x| (x[0] - 1.0).powi(2) + (x[1] + 1.0).powi(2),
+            [(-5.0, 5.0); 2],
+        );
         let mut sa = SimulatedAnnealing::new(obj)
             .with_seed(9)
             .with_cooling(CoolingSchedule::reheating(5.0, 0.9, 200))

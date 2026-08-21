@@ -33,13 +33,7 @@ impl<T: Copy + Default> CscMatrix<T> {
             values[slot] = t.value;
             cursor[t.col] += 1;
         }
-        Self {
-            nrows,
-            ncols,
-            col_ptr,
-            row_ind,
-            values,
-        }
+        Self { nrows, ncols, col_ptr, row_ind, values }
     }
 }
 

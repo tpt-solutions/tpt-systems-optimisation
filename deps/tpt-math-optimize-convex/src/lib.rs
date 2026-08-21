@@ -1,4 +1,7 @@
 #![no_std]
+// Numeric linear-algebra loops below index arrays by the loop counter; this is
+// intentional and clearer than iterator rewrites for dense matrix code.
+#![allow(clippy::needless_range_loop)]
 //! Local dev shim mirroring `tpt-math-optimize-convex`: a convex quadratic
 //! program solver used for relaxation master problems in `tpt-opt-minlp` and
 //! `tpt-opt-decompose`.

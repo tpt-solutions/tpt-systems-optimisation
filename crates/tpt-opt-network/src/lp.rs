@@ -9,9 +9,7 @@
 use std::vec::Vec;
 
 use tpt_opt_core::model::Model;
-use tpt_opt_core::solver::{
-    SolveParameters, Solution, Solver, SolverStatus,
-};
+use tpt_opt_core::solver::{Solution, SolveParameters, Solver, SolverStatus};
 use tpt_opt_core::{OptError, Sense};
 
 /// Column metadata for the standard-form tableau.
@@ -55,15 +53,11 @@ pub struct LpSolver {
 impl LpSolver {
     /// Create a new solver with default parameters.
     pub fn new() -> Self {
-        Self {
-            params: SolveParameters::defaults(),
-            status: SolverStatus::Error,
-            last: None,
-        }
+        Self { params: SolveParameters::defaults(), status: SolverStatus::Error, last: None }
     }
 
     /// Solve a pre-built standard form, returning the primal and objective.
-    fn solve_standard(&self, sf: &StandardForm) -> Result<Solution, OptError> {
+    fn solve_standard(&mut self, sf: &StandardForm) -> Result<Solution, OptError> {
         let m = sf.rows.len();
         let ncols = sf.cols.len();
         let rhs = ncols;
@@ -102,9 +96,9 @@ impl LpSolver {
         let phase1_obj = objective_value(&tab, &basis, &c1, m, ncols);
         if phase1_obj > eps {
             self.status = SolverStatus::Infeasible;
-            return Err(OptError::infeasible(
-                tpt_opt_core::InfeasibilityReport::new("LP is infeasible (phase I > 0)"),
-            ));
+            return Err(OptError::infeasible(tpt_opt_core::InfeasibilityReport::new(
+                "LP is infeasible (phase I > 0)",
+            )));
         }
 
         // Try to pivot remaining basic artificials out of the basis.
@@ -112,11 +106,9 @@ impl LpSolver {
             if sf.cols[basis[i]].artificial {
                 if tab[i][rhs] > eps {
                     self.status = SolverStatus::Infeasible;
-                    return Err(OptError::infeasible(
-                        tpt_opt_core::InfeasibilityReport::new(
-                            "LP is infeasible (artificial remains basic at positive level)",
-                        ),
-                    ));
+                    return Err(OptError::infeasible(tpt_opt_core::InfeasibilityReport::new(
+                        "LP is infeasible (artificial remains basic at positive level)",
+                    )));
                 }
                 // Find a non-artificial non-basic column to pivot in.
                 let mut found = None;
@@ -212,19 +204,12 @@ impl Solver<Model> for LpSolver {
 fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
     let n = model.num_vars;
     if model.variables.len() != n {
-        return Err(OptError::invalid_model(
-            "variable count mismatch in model",
-        ));
+        return Err(OptError::invalid_model("variable count mismatch in model"));
     }
 
     // Original objective coefficients (before sign flip).
     let mut orig_obj = vec![0.0f64; n];
-    for (&i, &c) in model
-        .objective
-        .indices
-        .iter()
-        .zip(model.objective.coeffs.iter())
-    {
+    for (&i, &c) in model.objective.indices.iter().zip(model.objective.coeffs.iter()) {
         if i >= n {
             return Err(OptError::invalid_model("objective references out-of-range variable"));
         }
@@ -240,10 +225,9 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
     let mut bound_rows: Vec<(Vec<(usize, f64)>, f64)> = Vec::new();
     let mut obj_const = model.objective.constant;
 
-    for v in 0..n {
-        let lb = model.variables[v].bound.bound.lower;
-        let ub = model.variables[v].bound.bound.upper;
-        let c = orig_obj[v];
+    for (var, &c) in model.variables.iter().zip(&orig_obj) {
+        let lb = var.bound.bound.lower;
+        let ub = var.bound.bound.upper;
         let phase2 = sign * c;
 
         let lb_finite = lb.is_finite();
@@ -282,7 +266,6 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
     // Variable bound rows (all are <= constraints with a slack basic var).
     for (coeffs, rhs) in &bound_rows {
         let mut c = coeffs.clone();
-        let s = cols.len();
         cols.push(Col { phase2: 0.0, artificial: false });
         // slack appears in the deps graph but we register it as a new column.
         let slack = cols.len() - 1;
@@ -293,18 +276,14 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
     // Model constraints.
     for con in &model.constraints {
         if con.indices.len() != con.coeffs.len() {
-            return Err(OptError::invalid_model(
-                "constraint indices/coeffs length mismatch",
-            ));
+            return Err(OptError::invalid_model("constraint indices/coeffs length mismatch"));
         }
         // Build the base coefficient vector in the substituted space.
         let mut base: Vec<(usize, f64)> = Vec::new();
         let mut const_term = 0.0f64;
         for (&ov, &coef) in con.indices.iter().zip(con.coeffs.iter()) {
             if ov >= n {
-                return Err(OptError::invalid_model(
-                    "constraint references out-of-range variable",
-                ));
+                return Err(OptError::invalid_model("constraint references out-of-range variable"));
             }
             let (con_val, expr) = &orig_expr[ov];
             const_term += coef * *con_val;
@@ -343,13 +322,7 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
         }
     }
 
-    Ok(StandardForm {
-        cols,
-        rows,
-        orig_expr,
-        obj_const,
-        sign,
-    })
+    Ok(StandardForm { cols, rows, orig_expr, obj_const, sign })
 }
 
 /// Reduced-cost row for the current basis, used by the simplex loop.
@@ -362,8 +335,8 @@ fn reduced_costs(tab: &[Vec<f64>], basis: &[usize], c: &[f64], m: usize, ncols: 
         let bj = basis[i];
         let f = r[bj];
         if f != 0.0 {
-            for k in 0..=ncols {
-                r[k] -= f * tab[i][k];
+            for (k, &tabik) in tab[i].iter().enumerate() {
+                r[k] -= f * tabik;
             }
         }
     }
@@ -381,7 +354,14 @@ fn objective_value(tab: &[Vec<f64>], basis: &[usize], c: &[f64], m: usize, _ncol
 }
 
 /// Pivot the tableau so that column `entering` becomes basic in row `leaving`.
-fn pivot(tab: &mut [Vec<f64>], basis: &mut [usize], leaving: usize, entering: usize, m: usize, ncols: usize) {
+fn pivot(
+    tab: &mut [Vec<f64>],
+    basis: &mut [usize],
+    leaving: usize,
+    entering: usize,
+    m: usize,
+    ncols: usize,
+) {
     let rhs = ncols;
     let piv = tab[leaving][entering];
     for k in 0..=rhs {
@@ -413,14 +393,7 @@ fn run_simplex(
     for _iter in 0..(10_000 * (m + ncols) + 1000) {
         let r = reduced_costs(tab, basis, c, m, ncols);
         // Entering: smallest index with negative reduced cost (Bland).
-        let mut enter = None;
-        for j in 0..ncols {
-            if r[j] < -eps {
-                enter = Some(j);
-                break;
-            }
-        }
-        let enter = match enter {
+        let enter = match r.iter().position(|&rc| rc < -eps) {
             Some(j) => j,
             None => return SolverStatus::Optimal,
         };
@@ -432,15 +405,8 @@ fn run_simplex(
             let a = tab[i][enter];
             if a > eps {
                 let ratio = tab[i][rhs] / a;
-                let better = if ratio < best - eps {
-                    true
-                } else if (ratio - best).abs() <= eps
-                    && leave.map_or(false, |l| basis[i] < basis[l])
-                {
-                    true
-                } else {
-                    false
-                };
+                let better = ratio < best - eps
+                    || ((ratio - best).abs() <= eps && leave.is_some_and(|l| basis[i] < basis[l]));
                 if better {
                     best = ratio;
                     leave = Some(i);

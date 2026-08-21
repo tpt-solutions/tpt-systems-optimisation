@@ -1,15 +1,14 @@
 //! Integration tests covering the spec's required test matrix.
 
 use tpt_opt_heuristic::{
-    CoolingSchedule, CrossoverKind, GeneticAlgorithm, MutationKind, ObjectiveFn, ParticleSwarmOptimization,
-    SelectionKind, SimulatedAnnealing, TabuSearch, Topology, InertiaSchedule,
+    CoolingSchedule, CrossoverKind, GeneticAlgorithm, InertiaSchedule, MutationKind, ObjectiveFn,
+    ParticleSwarmOptimization, SelectionKind, SimulatedAnnealing, TabuSearch, Topology,
 };
 
 #[test]
 fn determinism_same_seed_all_heuristics() {
-    let sphere = || {
-        ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3])
-    };
+    let sphere =
+        || ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3]);
 
     let sa_a = SimulatedAnnealing::new(sphere()).with_seed(1).with_iterations(300).solve().unwrap();
     let sa_b = SimulatedAnnealing::new(sphere()).with_seed(1).with_iterations(300).solve().unwrap();
@@ -33,16 +32,10 @@ fn determinism_same_seed_all_heuristics() {
     let ts_b = TabuSearch::new(sphere()).with_seed(1).with_iterations(300).solve().unwrap();
     assert_eq!(ts_a, ts_b);
 
-    let pso_a = ParticleSwarmOptimization::new(sphere())
-        .with_seed(1)
-        .with_iterations(300)
-        .solve()
-        .unwrap();
-    let pso_b = ParticleSwarmOptimization::new(sphere())
-        .with_seed(1)
-        .with_iterations(300)
-        .solve()
-        .unwrap();
+    let pso_a =
+        ParticleSwarmOptimization::new(sphere()).with_seed(1).with_iterations(300).solve().unwrap();
+    let pso_b =
+        ParticleSwarmOptimization::new(sphere()).with_seed(1).with_iterations(300).solve().unwrap();
     assert_eq!(pso_a, pso_b);
 }
 
@@ -76,13 +69,17 @@ fn ga_improves_on_simple_problem() {
 #[test]
 fn ga_onemax_permutation() {
     let n = 10;
-    let mut ga = GeneticAlgorithm::for_permutation(n, |p| p.iter().sum::<usize>() as f64, tpt_opt_core::Sense::Maximize)
-        .population_size(60)
-        .generations(100)
-        .crossover(CrossoverKind::OrderBased)
-        .mutation(MutationKind::Swap)
-        .with_target((n * (n - 1) / 2) as f64)
-        .with_seed(6);
+    let mut ga = GeneticAlgorithm::for_permutation(
+        n,
+        |p| p.iter().sum::<usize>() as f64,
+        tpt_opt_core::Sense::Maximize,
+    )
+    .population_size(60)
+    .generations(100)
+    .crossover(CrossoverKind::OrderBased)
+    .mutation(MutationKind::Swap)
+    .with_target((n * (n - 1) / 2) as f64)
+    .with_seed(6);
     let res = ga.solve().unwrap();
     assert!(res.best_value >= (n * (n - 1) / 2) as f64 - 1e-9);
 }
@@ -119,11 +116,7 @@ fn operator_unit_validity() {
     let bounds = vec![(0.0, 1.0); 8];
     let a: Vec<f64> = (0..8).map(|_| 0.5).collect();
     let b: Vec<f64> = (0..8).map(|_| 0.1).collect();
-    for kind in [
-        CrossoverKind::SinglePoint,
-        CrossoverKind::TwoPoint,
-        CrossoverKind::Uniform,
-    ] {
+    for kind in [CrossoverKind::SinglePoint, CrossoverKind::TwoPoint, CrossoverKind::Uniform] {
         let (c1, c2) = crossover(kind, &a, &b, &mut rng, 8);
         assert_eq!(c1.len(), 8);
         assert_eq!(c2.len(), 8);
@@ -140,11 +133,7 @@ fn operator_unit_validity() {
         assert_eq!(g.len(), 8);
     }
     let fitness = vec![0.2, 0.9, 0.4, 0.1, 0.7];
-    for s in [
-        SelectionKind::Tournament(3),
-        SelectionKind::Roulette,
-        SelectionKind::Rank,
-    ] {
+    for s in [SelectionKind::Tournament(3), SelectionKind::Roulette, SelectionKind::Rank] {
         for _ in 0..100 {
             let i = select_index(&fitness, s, &mut rng);
             assert!(i < fitness.len());

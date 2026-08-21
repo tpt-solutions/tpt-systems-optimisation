@@ -58,12 +58,7 @@ where
 {
     /// Build an objective from its parts.
     pub fn new(dim: usize, bounds: impl Into<Vec<(f64, f64)>>, sense: Sense, f: F) -> Self {
-        Self {
-            dim,
-            bounds: bounds.into(),
-            sense,
-            f,
-        }
+        Self { dim, bounds: bounds.into(), sense, f }
     }
 
     /// Convenience builder for a minimisation objective.
@@ -115,10 +110,7 @@ pub struct ModelObjective {
 impl ModelObjective {
     /// Build an adapter for `model`, using the given constraint penalty weight.
     pub fn new(model: Model) -> Self {
-        Self {
-            model,
-            penalty: 1e3,
-        }
+        Self { model, penalty: 1e3 }
     }
 
     /// Override the constraint-violation penalty weight.

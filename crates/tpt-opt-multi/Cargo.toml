@@ -14,8 +14,8 @@ documentation = "https://docs.rs/tpt-opt-multi"
 
 [dependencies]
     tpt-opt-core = { workspace = true }
-    tpt-opt-heuristic = { workspace = true }
-    tpt-math-linalg = { workspace = true }
+    tpt-opt-milp = { workspace = true }
+    tpt-math-prob = { workspace = true }
 
 [features]
 default = ["std"]

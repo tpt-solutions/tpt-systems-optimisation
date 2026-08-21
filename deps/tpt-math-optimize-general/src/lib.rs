@@ -1,4 +1,7 @@
 #![no_std]
+// Numeric linear-algebra loops below index arrays by the loop counter; this is
+// intentional and clearer than iterator rewrites for dense matrix code.
+#![allow(clippy::needless_range_loop)]
 //! Local dev shim mirroring `tpt-math-optimize-general`: a general nonlinear
 //! program (NLP) solver.
 //!
@@ -83,13 +86,7 @@ pub struct NlpParams {
 
 impl Default for NlpParams {
     fn default() -> Self {
-        Self {
-            max_outer: 50,
-            max_inner: 200,
-            tol: 1e-6,
-            rho_init: 1.0,
-            rho_growth: 4.0,
-        }
+        Self { max_outer: 50, max_inner: 200, tol: 1e-6, rho_init: 1.0, rho_growth: 4.0 }
     }
 }
 
@@ -133,12 +130,7 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
     }
 
     let objective = prob.objective(&x);
-    NlpResult {
-        x,
-        objective,
-        status,
-        iterations: total_iters,
-    }
+    NlpResult { x, objective, status, iterations: total_iters }
 }
 
 /// Minimise the augmented Lagrangian for fixed multipliers/penalty via BFGS.

@@ -22,12 +22,7 @@ impl Tolerances {
     /// Spec §4 defaults: integrality 1e-6, feasibility 1e-6, optimality gap
     /// 1e-4, pivoting 1e-9.
     pub fn spec_default() -> Self {
-        Self {
-            integrality: 1e-6,
-            feasibility: 1e-6,
-            optimality_gap: 1e-4,
-            pivoting: 1e-9,
-        }
+        Self { integrality: 1e-6, feasibility: 1e-6, optimality_gap: 1e-4, pivoting: 1e-9 }
     }
 
     /// Override the integrality tolerance.

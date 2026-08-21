@@ -18,6 +18,7 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.8
+unused-allowed-license = "allow"
 exceptions = []
 
 [[licenses.clarify]]
@@ -35,6 +36,3 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
-
-[advisories.osv]
-false_positives = []

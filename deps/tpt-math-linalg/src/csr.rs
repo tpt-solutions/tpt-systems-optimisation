@@ -35,13 +35,7 @@ impl<T: Copy + Default> CsrMatrix<T> {
             values[slot] = t.value;
             cursor[t.row] += 1;
         }
-        Self {
-            nrows,
-            ncols,
-            row_ptr,
-            col_ind,
-            values,
-        }
+        Self { nrows, ncols, row_ptr, col_ind, values }
     }
 }
 

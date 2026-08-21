@@ -1,7 +1,6 @@
 //! Local dev shim mirroring `tpt-math-linalg-complex`: a minimal complex
 //! scalar type used by OPF (polar/rectangular) formulations.
 
-
 /// A complex number with `f64` real and imaginary parts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Complex {
@@ -50,10 +49,7 @@ impl core::ops::Sub for Complex {
 impl core::ops::Mul for Complex {
     type Output = Self;
     fn mul(self, o: Self) -> Self {
-        Self::new(
-            self.re * o.re - self.im * o.im,
-            self.re * o.im + self.im * o.re,
-        )
+        Self::new(self.re * o.re - self.im * o.im, self.re * o.im + self.im * o.re)
     }
 }
 
@@ -61,9 +57,6 @@ impl core::ops::Div for Complex {
     type Output = Self;
     fn div(self, o: Self) -> Self {
         let d = o.norm_sqr();
-        Self::new(
-            (self.re * o.re + self.im * o.im) / d,
-            (self.im * o.re - self.re * o.im) / d,
-        )
+        Self::new((self.re * o.re + self.im * o.im) / d, (self.im * o.re - self.re * o.im) / d)
     }
 }

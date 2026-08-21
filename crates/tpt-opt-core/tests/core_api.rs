@@ -10,9 +10,7 @@ use tpt_opt_core::{
     error::{InfeasibilityReport, OptError},
     matrix::{model_to_csr, ConstraintMatrix},
     model::{Constraint, Model, Objective},
-    solver::{
-        SolveParameters, Solution, Solver, SolverStatus, WarmStart,
-    },
+    solver::{Solution, SolveParameters, Solver, SolverStatus, WarmStart},
     tolerance::Tolerances,
 };
 
@@ -117,9 +115,7 @@ fn warm_start_helpers() {
 #[test]
 fn error_display_and_diagnostics() {
     let e = OptError::infeasible(
-        InfeasibilityReport::new("conflict")
-            .with_violated(3)
-            .with_conflict(1),
+        InfeasibilityReport::new("conflict").with_violated(3).with_conflict(1),
     );
     assert!(e.is_infeasible());
     let msg = format!("{e}");
@@ -139,10 +135,7 @@ struct RecorderSolver {
 
 impl RecorderSolver {
     fn new() -> Self {
-        Self {
-            last: None,
-            status: SolverStatus::Optimal,
-        }
+        Self { last: None, status: SolverStatus::Optimal }
     }
 }
 

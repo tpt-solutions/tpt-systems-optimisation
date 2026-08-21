@@ -215,8 +215,9 @@ pub fn min_cost_flow(graph: &Graph, supplies: &[f64]) -> MinCostFlowResult {
         v = r.t;
         while v != r.s {
             let ai = prev_arc[v];
+            let rev = r.arcs[ai].rev;
             r.arcs[ai].cap -= bot;
-            r.arcs[r.arcs[ai].rev].cap += bot;
+            r.arcs[rev].cap += bot;
             v = prev_node[v];
         }
 
@@ -242,13 +243,11 @@ fn find_negative_cycle(r: &Residual, eps: f64) -> Option<Vec<usize>> {
         for u in 0..r.nn {
             for &ai in &r.head[u] {
                 let a = &r.arcs[ai];
-                if a.cap > eps {
-                    if dist[u] + a.cost < dist[a.to] - eps {
-                        dist[a.to] = dist[u] + a.cost;
-                        par[a.to] = u;
-                        par_arc[a.to] = ai;
-                        last_neg = a.to;
-                    }
+                if a.cap > eps && dist[u] + a.cost < dist[a.to] - eps {
+                    dist[a.to] = dist[u] + a.cost;
+                    par[a.to] = u;
+                    par_arc[a.to] = ai;
+                    last_neg = a.to;
                 }
             }
         }
@@ -309,9 +308,10 @@ fn max_flow_feasible(r: &mut Residual, eps: f64) {
         v = r.t;
         while v != r.s {
             let ai = prev_arc[v];
+            let rev = r.arcs[ai].rev;
             r.arcs[ai].cap -= bot;
-            r.arcs[r.arcs[ai].rev].cap += bot;
-            v = r.arcs[r.arcs[ai].rev].to;
+            r.arcs[rev].cap += bot;
+            v = r.arcs[rev].to;
         }
     }
 }
@@ -338,8 +338,9 @@ pub fn network_simplex(graph: &Graph, supplies: &[f64]) -> MinCostFlowResult {
                     break;
                 }
                 for &ai in &cycle {
+                    let rev = r.arcs[ai].rev;
                     r.arcs[ai].cap -= bot;
-                    r.arcs[r.arcs[ai].rev].cap += bot;
+                    r.arcs[rev].cap += bot;
                 }
             }
             None => break,
@@ -360,11 +361,7 @@ pub struct NetworkFlow<'a> {
 impl<'a> NetworkFlow<'a> {
     /// Build a problem from a graph and a per-node supply vector.
     pub fn new(graph: &'a Graph, supplies: Vec<f64>) -> Self {
-        Self {
-            graph,
-            supplies,
-            tol: Tolerances::spec_default(),
-        }
+        Self { graph, supplies, tol: Tolerances::spec_default() }
     }
 
     /// Override the tolerances used for numerical comparisons.

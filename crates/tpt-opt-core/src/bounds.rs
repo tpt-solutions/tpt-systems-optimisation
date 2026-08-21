@@ -37,10 +37,7 @@ impl Bound {
 
     /// A fully free bound `(-inf, +inf)`.
     pub fn free() -> Self {
-        Self {
-            lower: Self::UNBOUNDED_LOWER,
-            upper: Self::UNBOUNDED_UPPER,
-        }
+        Self { lower: Self::UNBOUNDED_LOWER, upper: Self::UNBOUNDED_UPPER }
     }
 
     /// A two-sided bound `[lower, upper]`.
@@ -50,18 +47,12 @@ impl Bound {
 
     /// A lower-bounded (semi-infinite) bound `[lower, +inf)`.
     pub fn lower(lower: f64) -> Self {
-        Self {
-            lower,
-            upper: Self::UNBOUNDED_UPPER,
-        }
+        Self { lower, upper: Self::UNBOUNDED_UPPER }
     }
 
     /// An upper-bounded (semi-infinite) bound `(-inf, upper]`.
     pub fn upper(upper: f64) -> Self {
-        Self {
-            lower: Self::UNBOUNDED_LOWER,
-            upper,
-        }
+        Self { lower: Self::UNBOUNDED_LOWER, upper }
     }
 
     /// `true` if `x` lies within the interval (within `tol` at the ends).
@@ -82,34 +73,22 @@ pub struct VarBound {
 impl VarBound {
     /// Continuous variable in `[lower, upper]`.
     pub fn continuous(lower: f64, upper: f64) -> Self {
-        Self {
-            kind: VarType::Continuous,
-            bound: Bound::boxed(lower, upper),
-        }
+        Self { kind: VarType::Continuous, bound: Bound::boxed(lower, upper) }
     }
 
     /// Integer variable in `[lower, upper]` (inclusive integer endpoints).
     pub fn integer(lower: f64, upper: f64) -> Self {
-        Self {
-            kind: VarType::Integer,
-            bound: Bound::boxed(lower, upper),
-        }
+        Self { kind: VarType::Integer, bound: Bound::boxed(lower, upper) }
     }
 
     /// Binary variable: integer in `[0, 1]`.
     pub fn binary() -> Self {
-        Self {
-            kind: VarType::Binary,
-            bound: Bound::boxed(0.0, 1.0),
-        }
+        Self { kind: VarType::Binary, bound: Bound::boxed(0.0, 1.0) }
     }
 
     /// Semi-continuous variable: either `0` or within `[lower, upper]`.
     pub fn semi_continuous(lower: f64, upper: f64) -> Self {
-        Self {
-            kind: VarType::SemiContinuous,
-            bound: Bound::boxed(lower, upper),
-        }
+        Self { kind: VarType::SemiContinuous, bound: Bound::boxed(lower, upper) }
     }
 
     /// `true` if the variable must take integral values.
@@ -121,9 +100,7 @@ impl VarBound {
     pub fn feasible(&self, x: f64, tol: f64) -> bool {
         match self.kind {
             VarType::Continuous => self.bound.contains(x, tol),
-            VarType::Integer | VarType::Binary => {
-                self.bound.contains(x, tol) && is_integer(x, tol)
-            }
+            VarType::Integer | VarType::Binary => self.bound.contains(x, tol) && is_integer(x, tol),
             VarType::SemiContinuous => {
                 // Semi-continuous: either zero, or inside the box and integral.
                 if x.abs() <= tol {

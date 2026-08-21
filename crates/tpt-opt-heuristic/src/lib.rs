@@ -62,8 +62,8 @@ pub mod tabu;
 
 pub use annealing::{CoolingSchedule, SimulatedAnnealing};
 pub use ga::{
-    CrossoverKind, GaSetup, Gene, GeneticAlgorithm, Genome, MutationKind, SelectionKind,
-    crossover, mutate, order_based, select_index, single_point, two_point, uniform,
+    crossover, mutate, order_based, select_index, single_point, two_point, uniform, CrossoverKind,
+    GaSetup, Gene, GeneticAlgorithm, Genome, MutationKind, SelectionKind,
 };
 pub use history::ConvergenceHistory;
 pub use neighborhood::{GaussianNeighborhood, Neighborhood, NeighborhoodFn, TabuNeighborhood};

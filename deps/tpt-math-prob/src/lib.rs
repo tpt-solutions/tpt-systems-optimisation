@@ -2,7 +2,6 @@
 //! deterministic RNG. Seedability is required by the optimisation crates'
 //! reproducibility design principle (spec §4).
 
-
 /// A deterministic random number generator. Implementors must produce the same
 /// stream for the same seed across platforms.
 pub trait Rng {
@@ -54,18 +53,13 @@ impl Xoshiro256 {
         let (s1, _) = splitmix64(s0);
         let (s2, _) = splitmix64(s1);
         let (s3, _) = splitmix64(s2);
-        Self {
-            s: [s0, s1, s2, s3],
-        }
+        Self { s: [s0, s1, s2, s3] }
     }
 }
 
 impl Rng for Xoshiro256 {
     fn next_u64(&mut self) -> u64 {
-        let result = (self.s[0]
-            .wrapping_add(self.s[3]))
-        .rotate_left(23)
-            .wrapping_add(self.s[0]);
+        let result = (self.s[0].wrapping_add(self.s[3])).rotate_left(23).wrapping_add(self.s[0]);
         let t = self.s[1] << 17;
         self.s[2] ^= self.s[0];
         self.s[3] ^= self.s[1];

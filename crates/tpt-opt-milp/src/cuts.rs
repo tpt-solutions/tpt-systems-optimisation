@@ -18,7 +18,7 @@ use crate::lp::{reoptimize, LpState};
 pub fn add_gomory_cuts(
     state: &mut LpState,
     int_vars: &[usize],
-    tol: &Tolerances,
+    tol: Tolerances,
     max_cuts: usize,
 ) -> usize {
     let mut added = 0;
@@ -33,7 +33,7 @@ pub fn add_gomory_cuts(
 
 /// Add a single Gomory cut from the most fractional basic integer variable.
 /// Returns `false` when no suitable fractional integer row exists.
-fn add_one_cut(state: &mut LpState, int_vars: &[usize], tol: &Tolerances) -> bool {
+fn add_one_cut(state: &mut LpState, int_vars: &[usize], tol: Tolerances) -> bool {
     let mrows = state.mrows;
     let n_struct = state.n_struct;
     let mut target: Option<(usize, f64)> = None;
@@ -63,19 +63,16 @@ fn add_one_cut(state: &mut LpState, int_vars: &[usize], tol: &Tolerances) -> boo
 
     let n_cols = state.n_cols;
     let f0 = v - v.floor();
-    let mut cut = vec![0.0f64; n_cols];
-    for k in 0..n_cols {
-        cut[k] = frac_part(state.a[ri][k]);
-    }
+    let cut: Vec<f64> = (0..n_cols).map(|k| frac_part(state.a[ri][k])).collect();
     // Convert sum_k fk x_k >= f0  to  sum_k (-fk) x_k + s = -f0  (s >= 0 slack).
     let slack = n_cols;
     state.n_cols += 1;
     for r in 0..mrows {
         state.a[r].push(0.0);
     }
-    let mut new_row = vec![0.0f64; state.n_cols];
-    for k in 0..n_cols {
-        new_row[k] = -cut[k];
+    let mut new_row = vec![-1.0f64; state.n_cols];
+    for (k, c) in cut.iter().enumerate().take(n_cols) {
+        new_row[k] = -c;
     }
     new_row[slack] = 1.0;
     state.a.push(new_row);

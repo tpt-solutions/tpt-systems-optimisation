@@ -18,12 +18,7 @@ pub struct Edge {
 
 impl Edge {
     pub fn new(from: usize, to: usize, capacity: f64, cost: f64) -> Self {
-        Self {
-            from,
-            to,
-            capacity,
-            cost,
-        }
+        Self { from, to, capacity, cost }
     }
 }
 
@@ -36,10 +31,7 @@ pub struct Graph {
 
 impl Graph {
     pub fn new(num_nodes: usize) -> Self {
-        Self {
-            num_nodes,
-            edges: Vec::new(),
-        }
+        Self { num_nodes, edges: Vec::new() }
     }
 
     pub fn add_edge(&mut self, edge: Edge) {
@@ -72,12 +64,7 @@ impl Graph {
     pub fn has_cycle(&self) -> bool {
         let out = self.outgoing();
         let mut state = vec![0u8; self.num_nodes]; // 0=unvisited,1=instack,2=done
-        fn dfs(
-            u: usize,
-            out: &[Vec<usize>],
-            edges: &[Edge],
-            state: &mut [u8],
-        ) -> bool {
+        fn dfs(u: usize, out: &[Vec<usize>], edges: &[Edge], state: &mut [u8]) -> bool {
             state[u] = 1;
             for &ei in &out[u] {
                 let v = edges[ei].to;

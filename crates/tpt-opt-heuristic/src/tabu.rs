@@ -122,14 +122,10 @@ impl TabuSearch {
         if self.objective.dim() == 0 {
             return Err(OptError::invalid_model("objective dimension is zero"));
         }
-        let bounds: Vec<(f64, f64)> = (0..self.objective.dim())
-            .map(|i| self.objective.bound(i))
-            .collect();
+        let bounds: Vec<(f64, f64)> =
+            (0..self.objective.dim()).map(|i| self.objective.bound(i)).collect();
         let default_nb = CoordinateNeighborhood::new(bounds, 0.2);
-        let nb: &dyn TabuNeighborhood = self
-            .neighborhood
-            .as_deref()
-            .unwrap_or(&default_nb);
+        let nb: &dyn TabuNeighborhood = self.neighborhood.as_deref().unwrap_or(&default_nb);
 
         let eval = |x: &[f64]| self.objective.evaluate(x);
         let sense = self.objective.sense();
@@ -138,7 +134,8 @@ impl TabuSearch {
             Sense::Maximize => a > b,
         };
 
-        let mut current = self.initial.clone().unwrap_or_else(|| random_point(&*self.objective, &mut self.rng));
+        let mut current =
+            self.initial.clone().unwrap_or_else(|| random_point(&*self.objective, &mut self.rng));
         let mut current_val = eval(&current);
         let mut best = current.clone();
         let mut best_val = current_val;
@@ -179,11 +176,7 @@ impl TabuSearch {
             }
 
             // Adaptive tenure: longer when stagnating, plus random spread.
-            let extra = if since_improve > 0 {
-                since_improve.min(self.tenure_spread)
-            } else {
-                0
-            };
+            let extra = if since_improve > 0 { since_improve.min(self.tenure_spread) } else { 0 };
             let tenure = self.tenure_base + self.rng.index(self.tenure_spread + 1) + extra;
             tabu[mv] = iter + tenure;
 
@@ -228,7 +221,8 @@ mod tests {
 
     #[test]
     fn determinism_same_seed() {
-        let obj = ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3]);
+        let obj =
+            ObjectiveFn::minimize(3, |x| x.iter().map(|v| v * v).sum::<f64>(), [(-3.0, 3.0); 3]);
         let build = || TabuSearch::new(obj.clone()).with_seed(321).with_iterations(400);
         let a = build().solve().unwrap();
         let b = build().solve().unwrap();
@@ -243,10 +237,7 @@ mod tests {
             |x| (x[0] - 2.0).powi(2) + (x[1] + 1.0).powi(2),
             [(0.0, 4.0), (-3.0, 1.0)],
         );
-        let mut ts = TabuSearch::new(obj)
-            .with_seed(4)
-            .with_iterations(1500)
-            .with_sample_size(30);
+        let mut ts = TabuSearch::new(obj).with_seed(4).with_iterations(1500).with_sample_size(30);
         let res = ts.solve().unwrap();
         assert!(res.best_value < 0.1, "got {}", res.best_value);
         assert!((res.best_x[0] - 2.0).abs() < 0.2);

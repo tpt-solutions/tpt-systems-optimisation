@@ -35,11 +35,7 @@ impl Variable {
     /// Create a variable at `index` with the given bound.
     pub fn new(index: usize, bound: VarBound) -> Self {
         let kind = bound.kind;
-        Self {
-            index,
-            bound,
-            kind,
-        }
+        Self { index, bound, kind }
     }
 
     /// `true` if this variable is binary.
@@ -82,50 +78,24 @@ impl Constraint {
             ));
         }
         if lower > upper {
-            return Err(OptError::invalid_model(
-                "constraint lower bound exceeds upper bound",
-            ));
+            return Err(OptError::invalid_model("constraint lower bound exceeds upper bound"));
         }
-        Ok(Self {
-            indices,
-            coeffs,
-            lower,
-            upper,
-            is_custom: false,
-        })
+        Ok(Self { indices, coeffs, lower, upper, is_custom: false })
     }
 
     /// An equality constraint `sum coeffs[i]*x[i] == rhs`.
     pub fn equality(indices: Vec<usize>, coeffs: Vec<f64>, rhs: f64) -> Self {
-        Self {
-            indices,
-            coeffs,
-            lower: rhs,
-            upper: rhs,
-            is_custom: false,
-        }
+        Self { indices, coeffs, lower: rhs, upper: rhs, is_custom: false }
     }
 
     /// A less-or-equal constraint `sum coeffs[i]*x[i] <= upper`.
     pub fn le(indices: Vec<usize>, coeffs: Vec<f64>, upper: f64) -> Self {
-        Self {
-            indices,
-            coeffs,
-            lower: f64::NEG_INFINITY,
-            upper,
-            is_custom: false,
-        }
+        Self { indices, coeffs, lower: f64::NEG_INFINITY, upper, is_custom: false }
     }
 
     /// A greater-or-equal constraint `sum coeffs[i]*x[i] >= lower`.
     pub fn ge(indices: Vec<usize>, coeffs: Vec<f64>, lower: f64) -> Self {
-        Self {
-            indices,
-            coeffs,
-            lower,
-            upper: f64::INFINITY,
-            is_custom: false,
-        }
+        Self { indices, coeffs, lower, upper: f64::INFINITY, is_custom: false }
     }
 
     /// Evaluate the left-hand side at `x`.
@@ -174,22 +144,12 @@ pub struct Objective {
 impl Objective {
     /// Minimise `constant + sum coeffs[i]*x[i]`.
     pub fn minimize(indices: Vec<usize>, coeffs: Vec<f64>) -> Self {
-        Self {
-            sense: Sense::Minimize,
-            indices,
-            coeffs,
-            constant: 0.0,
-        }
+        Self { sense: Sense::Minimize, indices, coeffs, constant: 0.0 }
     }
 
     /// Maximise `constant + sum coeffs[i]*x[i]`.
     pub fn maximize(indices: Vec<usize>, coeffs: Vec<f64>) -> Self {
-        Self {
-            sense: Sense::Maximize,
-            indices,
-            coeffs,
-            constant: 0.0,
-        }
+        Self { sense: Sense::Maximize, indices, coeffs, constant: 0.0 }
     }
 
     /// Evaluate the objective at `x` (as a minimisation value; maximisation
@@ -222,7 +182,12 @@ impl Model {
     /// Create an empty model over `num_vars` variables (all free continuous).
     pub fn new(num_vars: usize) -> Self {
         let variables = (0..num_vars)
-            .map(|i| Variable::new(i, VarBound::continuous(Bound::UNBOUNDED_LOWER, Bound::UNBOUNDED_UPPER)))
+            .map(|i| {
+                Variable::new(
+                    i,
+                    VarBound::continuous(Bound::UNBOUNDED_LOWER, Bound::UNBOUNDED_UPPER),
+                )
+            })
             .collect();
         Self {
             num_vars,

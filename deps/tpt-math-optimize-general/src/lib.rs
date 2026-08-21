@@ -95,7 +95,7 @@ impl Default for NlpParams {
 
 /// Solve a nonlinear program starting from `x0`.
 pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> NlpResult {
-    let n = prob.num_vars();
+    let _n = prob.num_vars();
     let m_ineq = prob.num_ineq();
     let m_eq = prob.num_eq();
     let mut x = x0.to_vec();
@@ -132,9 +132,10 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
         rho *= params.rho_growth;
     }
 
+    let objective = prob.objective(&x);
     NlpResult {
         x,
-        objective: prob.objective(&x),
+        objective,
         status,
         iterations: total_iters,
     }
@@ -174,7 +175,7 @@ fn minimize_alm<P: NlpProblem>(
         let mut grad = vec![0.0f64; n];
         prob.objective_grad(&x, &mut grad);
         for i in 0..lambda.len() {
-            let c = prob.ineq(i, x).max(0.0);
+            let c = prob.ineq(i, &x).max(0.0);
             if c > 0.0 {
                 let mut g = vec![0.0f64; n];
                 prob.ineq_grad(i, &x, &mut g);
@@ -184,7 +185,7 @@ fn minimize_alm<P: NlpProblem>(
             }
         }
         for j in 0..nu.len() {
-            let c = prob.eq(j, x);
+            let c = prob.eq(j, &x);
             let mut g = vec![0.0f64; n];
             prob.eq_grad(j, &x, &mut g);
             for k in 0..n {
@@ -192,8 +193,9 @@ fn minimize_alm<P: NlpProblem>(
             }
         }
 
-        // Stop if gradient is tiny.
-        if grad.iter().map(|v| v * v).sum::<f64>().sqrt() < params.tol {
+        // Stop if gradient is tiny (compare squared norm to avoid f64::sqrt,
+        // which is unavailable under `#![no_std]`).
+        if grad.iter().map(|v| v * v).sum::<f64>() < params.tol * params.tol {
             break;
         }
 
@@ -217,7 +219,7 @@ fn minimize_alm<P: NlpProblem>(
                 let mut gnew = vec![0.0f64; n];
                 prob.objective_grad(&nx, &mut gnew);
                 for i in 0..lambda.len() {
-                    let c = prob.ineq(i, nx).max(0.0);
+                    let c = prob.ineq(i, &nx).max(0.0);
                     if c > 0.0 {
                         let mut g = vec![0.0f64; n];
                         prob.ineq_grad(i, &nx, &mut g);
@@ -227,7 +229,7 @@ fn minimize_alm<P: NlpProblem>(
                     }
                 }
                 for j in 0..nu.len() {
-                    let c = prob.eq(j, nx);
+                    let c = prob.eq(j, &nx);
                     let mut g = vec![0.0f64; n];
                     prob.eq_grad(j, &nx, &mut g);
                     for k in 0..n {

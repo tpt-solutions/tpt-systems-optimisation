@@ -1,0 +1,21 @@
+﻿[package]
+name = "tpt-opt-milp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["milp", "mixed-integer", "linear-programming", "branch-and-bound", "optimization"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-milp"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-math-linalg = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

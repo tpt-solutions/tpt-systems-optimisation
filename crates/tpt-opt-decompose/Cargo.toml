@@ -1,0 +1,23 @@
+﻿[package]
+name = "tpt-opt-decompose"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["decomposition", "benders", "dantzig-wolfe", "column-generation", "optimization"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-decompose"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-opt-milp = { workspace = true }
+    tpt-math-optimize-convex = { workspace = true }
+    tpt-math-linalg = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -1,0 +1,22 @@
+﻿[package]
+name = "tpt-opt-network"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["network-flow", "min-cost-flow", "optimal-power-flow", "optimization", "graph"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-network"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-math-graph = { workspace = true }
+    tpt-math-linalg = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -16,9 +16,8 @@ documentation = "https://docs.rs/tpt-opt-core"
 [dependencies]
 tpt-math-linalg = { workspace = true }
 tpt-math-numeric = { workspace = true }
-thiserror = { workspace = true }
 
 [features]
 default = ["std"]
-std = []
+std = ["alloc"]
 alloc = []

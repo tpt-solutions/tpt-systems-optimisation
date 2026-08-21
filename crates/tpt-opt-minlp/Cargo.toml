@@ -1,0 +1,24 @@
+﻿[package]
+name = "tpt-opt-minlp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["minlp", "nonlinear", "optimization", "mixed-integer", "outer-approximation"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-minlp"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-opt-milp = { workspace = true }
+    tpt-math-optimize-convex = { workspace = true }
+    tpt-math-optimize-general = { workspace = true }
+    tpt-math-linalg = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

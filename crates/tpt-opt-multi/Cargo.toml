@@ -1,0 +1,22 @@
+﻿[package]
+name = "tpt-opt-multi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["multi-objective", "pareto", "nsga2", "optimization", "hypervolume"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-multi"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-opt-heuristic = { workspace = true }
+    tpt-math-linalg = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/*",
+    "deps/*",
+]
+exclude = [
+    "examples",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+homepage = "https://github.com/tpt-solutions/tpt-systems-optimisation"
+repository = "https://github.com/tpt-solutions/tpt-systems-optimisation"
+readme = "README.md"
+
+[workspace.dependencies]
+# Internal optimisation crates
+tpt-opt-core = { path = "crates/tpt-opt-core", version = "0.1.0" }
+tpt-opt-milp = { path = "crates/tpt-opt-milp", version = "0.1.0" }
+tpt-opt-minlp = { path = "crates/tpt-opt-minlp", version = "0.1.0" }
+tpt-opt-network = { path = "crates/tpt-opt-network", version = "0.1.0" }
+tpt-opt-cp = { path = "crates/tpt-opt-cp", version = "0.1.0" }
+tpt-opt-heuristic = { path = "crates/tpt-opt-heuristic", version = "0.1.0" }
+tpt-opt-multi = { path = "crates/tpt-opt-multi", version = "0.1.0" }
+tpt-opt-robust = { path = "crates/tpt-opt-robust", version = "0.1.0" }
+tpt-opt-decompose = { path = "crates/tpt-opt-decompose", version = "0.1.0" }
+tpt-opt-systems = { path = "crates/tpt-opt-systems", version = "0.1.0" }
+
+# Local development shims for the not-yet-published tpt-math workspace.
+# These mirror the API surface of the sibling `tpt-math` repo and are wired
+# as path deps for local dev. Swap to version deps once `tpt-math` publishes.
+tpt-math-linalg = { path = "deps/tpt-math-linalg", version = "0.1.0" }
+tpt-math-linalg-complex = { path = "deps/tpt-math-linalg-complex", version = "0.1.0" }
+tpt-math-graph = { path = "deps/tpt-math-graph", version = "0.1.0" }
+tpt-math-numeric = { path = "deps/tpt-math-numeric", version = "0.1.0" }
+tpt-math-prob = { path = "deps/tpt-math-prob", version = "0.1.0" }
+tpt-math-optimize-convex = { path = "deps/tpt-math-optimize-convex", version = "0.1.0" }
+tpt-math-optimize-general = { path = "deps/tpt-math-optimize-general", version = "0.1.0" }
+
+# Common external dependencies
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

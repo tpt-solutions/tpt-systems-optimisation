@@ -1,0 +1,9 @@
+[package]
+name = "tpt-math-linalg-complex"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "Local dev shim mirroring tpt-math-linalg-complex: complex scalar type."
+publish = false

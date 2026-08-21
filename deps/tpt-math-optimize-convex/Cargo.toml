@@ -1,0 +1,13 @@
+[package]
+name = "tpt-math-optimize-convex"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "Local dev shim mirroring tpt-math-optimize-convex: convex QP/SOCP solver for relaxation master problems."
+publish = false
+
+[dependencies]
+tpt-math-optimize-general = { path = "../tpt-math-optimize-general" }
+tpt-math-numeric = { path = "../tpt-math-numeric" }

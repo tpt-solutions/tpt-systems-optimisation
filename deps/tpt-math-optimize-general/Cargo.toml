@@ -1,0 +1,12 @@
+[package]
+name = "tpt-math-optimize-general"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "Local dev shim mirroring tpt-math-optimize-general: a general nonlinear program solver (augmented Lagrangian + BFGS)."
+publish = false
+
+[dependencies]
+tpt-math-numeric = { path = "../tpt-math-numeric" }

@@ -33,15 +33,20 @@ pub enum ConstraintKind {
     Eq,
 }
 
+/// Boxed scalar function of the decision vector.
+pub type ScalarFn = Box<dyn Fn(&[f64]) -> f64>;
+/// Boxed gradient routine: writes ∇f into the caller's buffer.
+pub type GradFn = Box<dyn Fn(&[f64], &mut [f64])>;
+
 /// A nonlinear constraint `g(x) rel 0`, optionally gated behind a binary
 /// indicator variable.
 pub struct NlConstraint {
     /// Row sense.
     pub kind: ConstraintKind,
     /// Constraint body: `Le` means `f(x) <= 0`, `Eq` means `f(x) = 0`.
-    pub f: Box<dyn Fn(&[f64]) -> f64>,
+    pub f: ScalarFn,
     /// Optional gradient of `f`. Defaults to finite differences.
-    pub grad: Option<Box<dyn Fn(&[f64], &mut [f64])>>,
+    pub grad: Option<GradFn>,
     /// When set, the constraint is enforced only if variable `.0` (a binary)
     /// equals `.1`.
     pub active_if: Option<(usize, bool)>,
@@ -67,9 +72,9 @@ pub struct MinlpModel {
     /// Variable upper bounds.
     pub ubs: Vec<f64>,
     /// Objective `f(x)` (minimised).
-    pub objective: Box<dyn Fn(&[f64]) -> f64>,
+    pub objective: ScalarFn,
     /// Optional objective gradient. Defaults to finite differences.
-    pub objective_grad: Option<Box<dyn Fn(&[f64], &mut [f64])>>,
+    pub objective_grad: Option<GradFn>,
     /// Nonlinear constraints.
     pub constraints: Vec<NlConstraint>,
 }

@@ -8,7 +8,7 @@ pub mod solver;
 
 #[cfg(test)]
 mod tests {
-    use crate::constraints::{AllDifferent, Cumulative, Element, Linear, Task};
+    use crate::constraints::{AllDifferent, Circuit, Cumulative, Element, Linear, Regular, Task};
     use crate::model::{CpModel, Relation};
     use crate::solver::{solutions, solve};
 
@@ -91,5 +91,121 @@ mod tests {
         m.add_constraint(Box::new(Linear::new(vec![(x, 1), (y, 1)], Relation::Eq, 1)));
         let sols = solutions(&m, 10);
         assert_eq!(sols.len(), 2);
+    }
+
+    #[test]
+    fn regular_no_three_consecutive_ones() {
+        // Binary sequence of length 5 with no run of three 1s.
+        // DFA: state = current run length of trailing 1s (0,1,2); a third
+        // consecutive 1 has no transition (dead end).
+        let mut m = CpModel::new();
+        let xs: Vec<usize> = (0..5).map(|_| m.add_var(0, 1)).collect();
+        let mut tr = Vec::new();
+        for s in 0..3 {
+            tr.push((s, 0, 0)); // a 0 resets the run
+            if s < 2 {
+                tr.push((s, 1, s + 1)); // extend the run (max 2)
+            }
+        }
+        m.add_constraint(Box::new(Regular::new(xs.clone(), tr, 0, vec![0, 1, 2], 3)));
+
+        let sol = solve(&m).expect("feasible");
+        let vals: Vec<usize> = xs.iter().map(|&x| sol.assignment[x]).collect();
+        for w in vals.windows(3) {
+            assert!(!(w[0] == 1 && w[1] == 1 && w[2] == 1), "run of three 1s: {vals:?}");
+        }
+        // Propagation must reject the all-ones sequence.
+        let mut m2 = CpModel::new();
+        let ys: Vec<usize> = (0..5).map(|_| m2.add_var_values(vec![1])).collect();
+        let mut tr2 = Vec::new();
+        for s in 0..3 {
+            tr2.push((s, 0, 0));
+            if s < 2 {
+                tr2.push((s, 1, s + 1));
+            }
+        }
+        m2.add_constraint(Box::new(Regular::new(ys, tr2, 0, vec![0, 1, 2], 3)));
+        assert!(solve(&m2).is_none(), "all-ones must be infeasible");
+    }
+
+    #[test]
+    fn regular_propagation_prunes_unsupported_prefix() {
+        // Length-2 sequence over {0,1} that must end in state 1: the only
+        // accepting path is (0 then 1). So x0 is forced to 0 and x1 to 1.
+        let mut m = CpModel::new();
+        let x0 = m.add_var(0, 1);
+        let x1 = m.add_var(0, 1);
+        let tr = vec![(0, 0, 0), (0, 1, 1), (1, 0, 0), (1, 1, 1)];
+        m.add_constraint(Box::new(Regular::new(vec![x0, x1], tr, 0, vec![1], 2)));
+        let sol = solve(&m).expect("feasible");
+        assert_eq!(sol.assignment[x0], 0);
+        assert_eq!(sol.assignment[x1], 1);
+    }
+
+    #[test]
+    fn circuit_finds_hamiltonian_cycle() {
+        // Complete graph on 4 nodes: any derangement forming one cycle.
+        let mut m = CpModel::new();
+        let succ: Vec<usize> = (0..4).map(|_| m.add_var(0, 3)).collect();
+        m.add_constraint(Box::new(Circuit::new(succ.clone())));
+        let sol = solve(&m).expect("4-node circuit exists");
+        let s: Vec<usize> = succ.iter().map(|&v| sol.assignment[v]).collect();
+        // Walk the cycle from node 0; must return after visiting all 4.
+        let mut cur = 0usize;
+        let mut visited = [false; 4];
+        for _ in 0..4 {
+            assert!(!visited[cur], "sub-cycle: {s:?}");
+            visited[cur] = true;
+            cur = s[cur];
+        }
+        assert_eq!(cur, 0);
+    }
+
+    #[test]
+    fn circuit_rejects_disjoint_cycles() {
+        // Force 0->1 and 1->0 (a 2-cycle); with n=4 the circuit constraint
+        // must be infeasible since the remaining nodes cannot join.
+        let mut m = CpModel::new();
+        let s0 = m.add_var(0, 3);
+        let s1 = m.add_var(0, 3);
+        let s2 = m.add_var(0, 3);
+        let s3 = m.add_var(0, 3);
+        m.add_constraint(Box::new(Circuit::new(vec![s0, s1, s2, s3])));
+        m.domains[s0].assign(1);
+        m.domains[s1].assign(0);
+        assert!(solve(&m).is_none(), "disjoint 2-cycle must be rejected");
+    }
+
+    #[test]
+    fn cbj_matches_enumeration_on_infeasible_model() {
+        // x,y,z in {0,1}; x+y+z = 2 and x+y+z = 1: infeasible. CBJ must
+        // prove infeasibility (solve -> None) without missing anything.
+        let mut m = CpModel::new();
+        let x = m.add_var(0, 1);
+        let y = m.add_var(0, 1);
+        let z = m.add_var(0, 1);
+        m.add_constraint(Box::new(Linear::new(vec![(x, 1), (y, 1), (z, 1)], Relation::Eq, 2)));
+        m.add_constraint(Box::new(Linear::new(vec![(x, 1), (y, 1), (z, 1)], Relation::Eq, 1)));
+        assert!(solve(&m).is_none());
+        assert!(solutions(&m, 10).is_empty());
+    }
+
+    #[test]
+    fn cbj_finds_same_solutions_as_enumeration() {
+        // Random-ish small model: CBJ one-solution result must satisfy all
+        // constraints, and enumeration must agree on feasibility.
+        let mut m = CpModel::new();
+        let a = m.add_var(0, 3);
+        let b = m.add_var(0, 3);
+        let c = m.add_var(0, 3);
+        m.add_constraint(Box::new(Linear::new(vec![(a, 1), (b, 1)], Relation::Eq, 4)));
+        m.add_constraint(Box::new(Linear::new(vec![(b, 1), (c, 2)], Relation::Le, 5)));
+        m.add_constraint(Box::new(AllDifferent::new(vec![a, b, c])));
+        let sol = solve(&m).expect("feasible");
+        let (va, vb, vc) = (sol.assignment[a], sol.assignment[b], sol.assignment[c]);
+        assert_eq!(va + vb, 4);
+        assert!(vb + 2 * vc <= 5);
+        assert!(va != vb && vb != vc && va != vc);
+        assert!(!solutions(&m, 10).is_empty());
     }
 }

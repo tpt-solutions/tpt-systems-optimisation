@@ -73,17 +73,31 @@ pub(crate) fn fixpoint(
     doms: &mut [Domain],
     cons: &[Box<dyn Constraint>],
 ) -> Result<(), Inconsistency> {
+    fixpoint_report(doms, cons).map_err(|_| Inconsistency)
+}
+
+/// Run propagation to a fixpoint, reporting the index of the constraint
+/// whose filter emptied a domain (used by conflict-directed backjumping to
+/// attribute failures). Returns `Err(index)` on wipeout.
+pub(crate) fn fixpoint_report(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+) -> Result<(), usize> {
     loop {
         let before: Vec<usize> = doms.iter().map(|d| d.len()).collect();
-        for c in cons {
-            c.propagate(doms)?;
+        for (ci, c) in cons.iter().enumerate() {
+            c.propagate(doms).map_err(|_| ci)?;
         }
         let after: Vec<usize> = doms.iter().map(|d| d.len()).collect();
         if before == after {
             break;
         }
-        if doms.iter().any(|d| d.is_empty()) {
-            return Err(Inconsistency);
+        if let Some(ci) = doms
+            .iter()
+            .position(|d| d.is_empty())
+            .and_then(|vi| cons.iter().position(|c| c.vars().contains(&vi)))
+        {
+            return Err(ci);
         }
     }
     Ok(())

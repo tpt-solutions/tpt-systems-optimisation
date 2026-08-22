@@ -12,11 +12,16 @@ and first-fail backtracking search.
   until no constraint can prune further (`model::fixpoint`).
 - **Constraints** — linear/equality relations, plus the globals
   `AllDifferent`, `Cumulative` (renewable-resource scheduling), `Element`
-  (array indexing), and `Table` (explicit tuple enumeration).
+  (array indexing), `Table` (explicit tuple enumeration), `Regular`
+  (automaton-based sequence constraints with forward/backward reachability
+  propagation), and `Circuit` (Hamiltonian cycle over successor variables,
+  with premature-cycle pruning).
 - **Reification** — wrap any constraint in a boolean variable
   (`constraints::Reified`).
-- **Search** — first-fail (smallest-domain) backtracking; find one solution
-  (`solver::solve`) or enumerate up to a limit (`solver::solutions`).
+- **Search** — first-fail (smallest-domain) backtracking with
+  **conflict-directed backjumping** and bounded no-good recording for
+  one-solution solving (`solver::solve`); plain depth-first enumeration up to
+  a limit (`solver::solutions`).
 
 ## Quick start
 

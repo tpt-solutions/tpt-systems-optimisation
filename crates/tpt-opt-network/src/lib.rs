@@ -21,6 +21,27 @@
 //! All numerical comparisons thread [`tpt_opt_core::tolerance::Tolerances`]
 //! through the solvers, and numerical failures surface as
 //! [`tpt_opt_core::solver::SolverStatus::NumericalIssue`].
+//!
+//! # Example
+//!
+//! Route 4 units from node 0 to node 3 at minimum cost:
+//!
+//! ```
+//! use tpt_math_graph::{Edge, Graph};
+//! use tpt_opt_core::solver::SolverStatus;
+//! use tpt_opt_network::min_cost_flow;
+//!
+//! let mut g = Graph::new(4);
+//! g.add_edge(Edge::new(0, 1, 3.0, 2.0)); // cap, cost
+//! g.add_edge(Edge::new(0, 2, 2.0, 2.0));
+//! g.add_edge(Edge::new(1, 3, 2.0, 3.0));
+//! g.add_edge(Edge::new(2, 3, 3.0, 1.0));
+//!
+//! let result = min_cost_flow(&g, &[4.0, 0.0, 0.0, -4.0]);
+//! assert_eq!(result.status, SolverStatus::Optimal);
+//! // Optimal routing: 2 units via 0->1->3 and 2 units via 0->2->3.
+//! assert!((result.total_cost - 16.0).abs() < 1e-6);
+//! ```
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

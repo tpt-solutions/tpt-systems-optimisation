@@ -1,178 +1,189 @@
 //! Continuous NLP subproblem with the integer variables fixed at given
 //! values — the workhorse of both outer approximation and generalized
 //! Benders decomposition.
+//!
+//! Fixed integer/binary variables are **substituted out**: the NLP handed to
+//! the underlying solver ranges over the continuous variables only, with
+//! integer values baked into the objective, constraint and bound evaluation.
+//! This avoids penalty-based "fixing" rows whose residual violation would
+//! otherwise dominate the feasibility judgement.
 
 use std::vec::Vec;
 
-use tpt_math_optimize_general::{NlpParams, NlpProblem, NlpResult, NlpStatus};
+use tpt_math_optimize_general::{solve_nlp, NlpParams, NlpProblem, NlpResult, NlpStatus};
 
-use crate::model::{ConstraintKind, MinlpModel};
+use crate::model::{ConstraintKind, MinlpModel, VarKind};
 
 /// Solve the continuous relaxation of `model` with every integer/binary
 /// variable fixed to its value in `y` (rounded). Only constraints active at
-/// the fixed point are enforced. Bounds are enforced as explicit inequality
-/// rows because the underlying NLP interface has no bound handling.
-pub fn solve_subproblem(
-    model: &MinlpModel,
-    y: &[f64],
-    params: &NlpParams,
-) -> NlpResult {
+/// the fixed point are enforced.
+pub fn solve_subproblem(model: &MinlpModel, y: &[f64], params: &NlpParams) -> NlpResult {
     let n = model.num_vars();
     debug_assert_eq!(y.len(), n);
-    // Fixed point: integers rounded, continuous vars start at their midpoint
-    // of the remaining box (clipped into bounds).
-    let mut x0 = vec![0.0f64; n];
-    for i in 0..n {
-        x0[i] = match model.vars[i] {
-            crate::model::VarKind::Continuous => {
-                ((model.lbs[i] + model.ubs[i]) * 0.5).clamp(model.lbs[i], model.ubs[i])
-            }
-            _ => y[i].round(),
-        };
+    let yr: Vec<f64> = y.iter().map(|v| v.round()).collect();
+    let cidx: Vec<usize> = (0..n).filter(|&i| model.vars[i] == VarKind::Continuous).collect();
+
+    // Starting point: midpoint of each continuous variable's box.
+    let x0: Vec<f64> = cidx
+        .iter()
+        .map(|&i| ((model.lbs[i] + model.ubs[i]) * 0.5).clamp(model.lbs[i], model.ubs[i]))
+        .collect();
+
+    let prob = ReducedProblem { model, cidx: cidx.clone(), y: yr.clone() };
+    let res = solve_nlp(&prob, &x0, params);
+
+    // Lift back to the full space: continuous values scattered into their
+    // original positions, integers pinned to their fixed values.
+    let mut out = yr;
+    for (k, &i) in cidx.iter().enumerate() {
+        out[i] = res.x[k];
     }
-    let prob = Subproblem { model, y: y.to_vec() };
-    solve_nlp(&prob, &x0, params)
+    NlpResult { x: out, objective: res.objective, status: res.status, iterations: res.iterations }
 }
 
-/// Adapter implementing [`NlpProblem`] over a [`MinlpModel`] with integer
-/// variables pinned to `y`.
-struct Subproblem<'a> {
+/// Adapter implementing [`NlpProblem`] over the continuous subspace of a
+/// [`MinlpModel`] with integer variables pinned to `y`.
+struct ReducedProblem<'a> {
     model: &'a MinlpModel,
+    /// Indices of the continuous variables, in increasing order.
+    cidx: Vec<usize>,
+    /// Rounded fixed values for every variable (full dimension).
     y: Vec<f64>,
 }
 
-impl<'a> Subproblem<'a> {
-    /// Rows: 2 bounds per variable + fixing rows for integer variables +
-    /// active nonlinear constraints.
+impl ReducedProblem<'_> {
+    fn lift(&self, xr: &[f64]) -> Vec<f64> {
+        let mut x = self.y.clone();
+        for (k, &i) in self.cidx.iter().enumerate() {
+            x[i] = xr[k];
+        }
+        x
+    }
+
+    /// Inequality rows: 2 bounds per continuous variable + active `Le`
+    /// nonlinear constraints.
     fn row_count(&self) -> usize {
-        let n = self.model.num_vars();
-        let n_int = self.model.vars.iter().filter(|k| **k != crate::model::VarKind::Continuous).count();
-        let n_active =
-            self.model.constraints.iter().enumerate().filter(|(i, _)| self.model.is_active(*i, &self.y)).count();
-        2 * n + n_int + n_active
+        let n_le = self
+            .model
+            .constraints
+            .iter()
+            .enumerate()
+            .filter(|(i, c)| c.kind == ConstraintKind::Le && self.model.is_active(*i, &self.y))
+            .count();
+        2 * self.cidx.len() + n_le
+    }
+
+    /// Scatter a full-dimensional gradient into the reduced coordinates.
+    fn reduce_grad(&self, g_full: &[f64], g_red: &mut [f64]) {
+        for (k, &i) in self.cidx.iter().enumerate() {
+            g_red[k] = g_full[i];
+        }
     }
 }
 
-impl<'a> NlpProblem for Subproblem<'a> {
+impl NlpProblem for ReducedProblem<'_> {
     fn num_vars(&self) -> usize {
-        self.model.num_vars()
+        self.cidx.len()
     }
 
-    fn objective(&self, x: &[f64]) -> f64 {
-        self.model.eval_objective(x)
+    fn objective(&self, xr: &[f64]) -> f64 {
+        let x = self.lift(xr);
+        self.model.eval_objective(&x)
     }
 
-    fn objective_grad(&self, x: &[f64], g: &mut [f64]) {
-        let grad = self.model.eval_objective_grad(x);
-        g.copy_from_slice(&grad);
+    fn objective_grad(&self, xr: &[f64], g: &mut [f64]) {
+        let x = self.lift(xr);
+        let gf = self.model.eval_objective_grad(&x);
+        self.reduce_grad(&gf, g);
     }
 
     fn num_ineq(&self) -> usize {
         self.row_count()
     }
 
-    fn ineq(&self, i: usize, x: &[f64]) -> f64 {
-        let n = self.model.num_vars();
-        if i < 2 * n {
-            let v = i / 2;
-            return if i % 2 == 0 { self.model.lbs[v] - x[v] } else { x[v] - self.model.ubs[v] };
+    fn ineq(&self, i: usize, xr: &[f64]) -> f64 {
+        let m = self.cidx.len();
+        if i < 2 * m {
+            let k = i / 2;
+            let v = self.cidx[k];
+            return if i % 2 == 0 { self.model.lbs[v] - xr[k] } else { xr[k] - self.model.ubs[v] };
         }
-        let mut k = i - 2 * n;
-        for v in 0..n {
-            if self.model.vars[v] != crate::model::VarKind::Continuous {
-                if k == 0 {
-                    return x[v] - self.y[v].round();
-                }
-                k -= 1;
-            }
-        }
-        // Active nonlinear constraint index `k`.
+        let x = self.lift(xr);
+        let mut kk = i - 2 * m;
         for (ci, c) in self.model.constraints.iter().enumerate() {
-            if !self.model.is_active(ci, &self.y) {
+            if c.kind != ConstraintKind::Le || !self.model.is_active(ci, &self.y) {
                 continue;
             }
-            if k == 0 {
-                let val = (c.f)(x);
-                return match c.kind {
-                    ConstraintKind::Le => val,
-                    ConstraintKind::Eq => val, // handled by paired rows below
-                };
+            if kk == 0 {
+                return (c.f)(&x);
             }
-            k -= 1;
+            kk -= 1;
         }
         0.0
     }
 
-    fn ineq_grad(&self, i: usize, x: &[f64], row: &mut [f64]) {
-        let n = self.model.num_vars();
+    fn ineq_grad(&self, i: usize, xr: &[f64], row: &mut [f64]) {
         for v in row.iter_mut() {
             *v = 0.0;
         }
-        if i < 2 * n {
-            let v = i / 2;
-            row[v] = if i % 2 == 0 { -1.0 } else { 1.0 };
+        let m = self.cidx.len();
+        if i < 2 * m {
+            let k = i / 2;
+            row[k] = if i % 2 == 0 { -1.0 } else { 1.0 };
             return;
         }
-        let mut k = i - 2 * n;
-        for v in 0..n {
-            if self.model.vars[v] != crate::model::VarKind::Continuous {
-                if k == 0 {
-                    row[v] = 1.0;
-                    return;
-                }
-                k -= 1;
-            }
-        }
+        let x = self.lift(xr);
+        let mut kk = i - 2 * m;
         for (ci, c) in self.model.constraints.iter().enumerate() {
-            if !self.model.is_active(ci, &self.y) {
+            if c.kind != ConstraintKind::Le || !self.model.is_active(ci, &self.y) {
                 continue;
             }
-            if k == 0 {
-                let g = self.model.eval_constraint_grad(ci, x);
-                row.copy_from_slice(&g);
+            if kk == 0 {
+                let g = self.model.eval_constraint_grad(ci, &x);
+                self.reduce_grad(&g, row);
                 return;
             }
-            k -= 1;
+            kk -= 1;
         }
     }
 
     fn num_eq(&self) -> usize {
-        // Equalities are enforced as two inequalities each (val <= tol,
-        // -val <= tol) via slack-free pairing; we instead expose them here as
-        // proper equalities and keep only Le rows in `ineq`.
-        let n_active_eq = self
-            .model
+        self.model
             .constraints
             .iter()
             .enumerate()
             .filter(|(i, c)| c.kind == ConstraintKind::Eq && self.model.is_active(*i, &self.y))
-            .count();
-        n_active_eq
+            .count()
     }
 
-    fn eq(&self, j: usize, x: &[f64]) -> f64 {
+    fn eq(&self, j: usize, xr: &[f64]) -> f64 {
+        let x = self.lift(xr);
         let mut k = j;
         for (ci, c) in self.model.constraints.iter().enumerate() {
             if c.kind != ConstraintKind::Eq || !self.model.is_active(ci, &self.y) {
                 continue;
             }
             if k == 0 {
-                return (c.f)(x);
+                return (c.f)(&x);
             }
             k -= 1;
         }
         0.0
     }
 
-    fn eq_grad(&self, j: usize, x: &[f64], row: &mut [f64]) {
+    fn eq_grad(&self, j: usize, xr: &[f64], row: &mut [f64]) {
+        for v in row.iter_mut() {
+            *v = 0.0;
+        }
+        let x = self.lift(xr);
         let mut k = j;
         for (ci, c) in self.model.constraints.iter().enumerate() {
             if c.kind != ConstraintKind::Eq || !self.model.is_active(ci, &self.y) {
                 continue;
             }
             if k == 0 {
-                let g = self.model.eval_constraint_grad(ci, x);
-                row.copy_from_slice(&g);
+                let g = self.model.eval_constraint_grad(ci, &x);
+                self.reduce_grad(&g, row);
                 return;
             }
             k -= 1;
@@ -188,7 +199,7 @@ pub fn max_violation(model: &MinlpModel, y: &[f64], x: &[f64]) -> f64 {
     for i in 0..model.num_vars() {
         worst = worst.max((model.lbs[i] - x[i]).max(0.0));
         worst = worst.max((x[i] - model.ubs[i]).max(0.0));
-        if model.vars[i] != crate::model::VarKind::Continuous {
+        if model.vars[i] != VarKind::Continuous {
             worst = worst.max((x[i] - y[i].round()).abs());
         }
     }

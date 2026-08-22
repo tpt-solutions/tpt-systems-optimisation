@@ -86,7 +86,7 @@ pub struct NlpParams {
 
 impl Default for NlpParams {
     fn default() -> Self {
-        Self { max_outer: 50, max_inner: 200, tol: 1e-6, rho_init: 1.0, rho_growth: 4.0 }
+        Self { max_outer: 60, max_inner: 4000, tol: 1e-6, rho_init: 10.0, rho_growth: 8.0 }
     }
 }
 
@@ -102,31 +102,93 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
 
     let mut status = NlpStatus::MaxIterations;
     let mut total_iters = 0;
+    let mut prev_viol = f64::INFINITY;
+    let mut prev_x: Option<Vec<f64>> = None;
+    let mut stalled_outers = 0usize;
 
     for _outer in 0..params.max_outer {
         // Minimise the augmented Lagrangian with BFGS.
-        let (x_new, iters) = minimize_alm(prob, &x, &lambda, &nu, rho, params);
+        let (x_new, iters, settled, grad_inf) = minimize_alm(prob, &x, &lambda, &nu, rho, params);
         total_iters += iters;
         x = x_new;
 
         // Constraint violation at the new point.
         let mut max_viol = 0.0f64;
         for i in 0..m_ineq {
-            let c = prob.ineq(i, &x).max(0.0);
-            max_viol = max_viol.max(c);
-            lambda[i] += rho * c;
+            max_viol = max_viol.max(prob.ineq(i, &x).max(0.0));
+        }
+        for j in 0..m_eq {
+            max_viol = max_viol.max(prob.eq(j, &x).abs());
+        }
+
+        // Multiplier/penalty updates only after a *settled* inner solve.
+        // Updating on a truncated solve inflates the multipliers (the
+        // residual violation is line-search noise, not equilibrium), which
+        // produces oscillating trajectories that never certify. A stall
+        // counter forces progress if the inner loop repeatedly fails to
+        // settle.
+        if settled || stalled_outers >= 3 {
+            for i in 0..m_ineq {
+                lambda[i] += rho * prob.ineq(i, &x).max(0.0);
+            }
+            for j in 0..m_eq {
+                nu[j] += rho * prob.eq(j, &x);
+            }
+            stalled_outers = 0;
+            rho *= params.rho_growth;
+            if rho > 1e14 {
+                rho = 1e14;
+            }
+        } else {
+            stalled_outers += 1;
+        }
+
+        // Convergence requires BOTH feasibility and evidence of optimality:
+        // either the inner solve reached AL-stationarity (tiny gradient), or
+        // the iterates have stagnated (successive outers agree to within
+        // `tol`) while feasible — the standard practical KKT proxy for AL
+        // methods. A merely-feasible but still-improving iterate satisfies
+        // neither and the loop continues.
+        let moved = match &prev_x {
+            Some(p) => p.iter().zip(&x).map(|(a, b)| (a - b).abs()).fold(0.0f64, f64::max),
+            None => f64::INFINITY,
+        };
+        // Scaled KKT residual: near active-constraint solutions the
+        // multipliers grow asymptotically and the achievable absolute AL
+        // gradient plateaus above `tol`; normalising by the multiplier
+        // scale (with an absolute cap to avoid masking real suboptimality)
+        // is the standard practical remedy.
+        let mult_scale =
+            lambda.iter().chain(nu.iter()).fold(0.0f64, |a, v| a.max(v.abs())).max(1.0);
+        let kkt_scaled = grad_inf / (mult_scale + rho * max_viol);
+        // Complementarity: a multiplier may only be positive if its
+        // constraint is (near-)active. Without this check a degenerate AL
+        // fixed point (multiplier cancelling the objective gradient on a
+        // slack constraint) masquerades as optimal.
+        let mut compl = 0.0f64;
+        for i in 0..m_ineq {
+            // Raw row value: complementarity fails when a multiplier is
+            // positive on a *satisfied but slack* constraint too.
+            let c = prob.ineq(i, &x).abs();
+            compl = compl.max(lambda[i] * c);
         }
         for j in 0..m_eq {
             let c = prob.eq(j, &x).abs();
-            max_viol = max_viol.max(c);
-            nu[j] += rho * prob.eq(j, &x);
+            compl = compl.max(nu[j].abs() * c);
         }
-
-        if max_viol < params.tol {
+        let comp_ok = compl <= 1e-6 * (1.0 + mult_scale);
+        if max_viol < params.tol
+            && comp_ok
+            && (settled
+                || moved <= params.tol.max(1e-9)
+                || (grad_inf < 1e-2 && kkt_scaled < params.tol))
+        {
             status = NlpStatus::Converged;
             break;
         }
-        rho *= params.rho_growth;
+        prev_x = Some(x.clone());
+        let _ = prev_viol;
+        prev_viol = max_viol;
     }
 
     let objective = prob.objective(&x);
@@ -134,6 +196,10 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
 }
 
 /// Minimise the augmented Lagrangian for fixed multipliers/penalty via BFGS.
+/// Returns the iterate, the iteration count, whether the inner loop reached
+/// AL-stationarity (tiny gradient), and the infinity-norm of the final AL
+/// gradient. The stationarity flag is false when the inner loop exited via
+/// the line search or exhausted its iteration budget.
 fn minimize_alm<P: NlpProblem>(
     prob: &P,
     x0: &[f64],
@@ -141,7 +207,7 @@ fn minimize_alm<P: NlpProblem>(
     nu: &[f64],
     rho: f64,
     params: &NlpParams,
-) -> (Vec<f64>, usize) {
+) -> (Vec<f64>, usize, bool, f64) {
     let n = x0.len();
     let mut x = x0.to_vec();
     let mut inv_hess = identity(n);
@@ -160,6 +226,8 @@ fn minimize_alm<P: NlpProblem>(
     };
 
     let mut iters = 0;
+    let mut settled = false;
+    let mut grad_inf = 0.0f64;
     for _ in 0..params.max_inner {
         iters += 1;
         let f = al(&x);
@@ -188,16 +256,27 @@ fn minimize_alm<P: NlpProblem>(
         // Stop if gradient is tiny (compare squared norm to avoid f64::sqrt,
         // which is unavailable under `#![no_std]`).
         if grad.iter().map(|v| v * v).sum::<f64>() < params.tol * params.tol {
+            settled = true; // AL-stationarity reached
             break;
         }
 
-        // Compute search direction d = -H*grad.
+        // Compute search direction d = -H*grad, normalised so the line
+        // search operates on a scale-invariant step length (prevents the
+        // crawl that raw Newton-like magnitudes can induce near boundaries).
         let mut d = vec![0.0f64; n];
         for i in 0..n {
             for k in 0..n {
                 d[i] += inv_hess[i * n + k] * grad[k];
             }
             d[i] = -d[i];
+        }
+        // Scale by the infinity norm (no `sqrt` needed under `no_std`).
+        let dnorm_inf = d.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+        if dnorm_inf > 0.0 {
+            let inv = 1.0 / dnorm_inf;
+            for v in d.iter_mut() {
+                *v *= inv;
+            }
         }
 
         // Armijo line search.
@@ -241,8 +320,9 @@ fn minimize_alm<P: NlpProblem>(
         if !improved {
             break;
         }
+        grad_inf = grad.iter().fold(0.0f64, |a, v| a.max(v.abs()));
     }
-    (x, iters)
+    (x, iters, settled, grad_inf)
 }
 
 fn bfgs_update(h: &mut [f64], d: &[f64], y: &[f64], step: f64) {

@@ -13,6 +13,11 @@ workspace.
   (`ObjectiveNormalizer`).
 - **NSGA-II** — a self-contained, seedable evolutionary multi-objective
   solver with fast non-dominated sorting and crowding distance (`Nsga2`).
+- **NSGA-III** — many-objective search with Das–Dennis reference directions
+  and niching selection; supply custom directions to articulate preferences
+  (`Nsga3`, `das_dennis`).
+- **Decision-making** — knee-point detection, envelope-based trade-off
+  ratios, and deterministic k-means clustering over a front (`decision`).
 - **Scalarisation** — weighted-sum and ε-constraint methods compiled to
   single-objective MILPs solved with `tpt-opt-milp` (`scalarize`).
 

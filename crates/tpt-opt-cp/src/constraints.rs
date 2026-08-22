@@ -298,6 +298,286 @@ impl Constraint for Table {
     }
 }
 
+/// Regular (automaton-based sequence) constraint: the sequence of values
+/// taken by `vars` must drive a deterministic finite automaton from
+/// `initial` to one of `accepting`.
+///
+/// States are numbered `0..num_states`; transitions are `(from, symbol,
+/// to)` triples where `symbol` is a variable *value*. Propagation uses
+/// forward/backward reachability: a value survives at position `i` only if
+/// some transition supports it between a forward-reachable state and a
+/// backward-co-reachable state (domain consistency for the sequence).
+pub struct Regular {
+    vars: Vec<usize>,
+    /// `(from_state, symbol, to_state)` triples.
+    transitions: Vec<(usize, usize, usize)>,
+    initial: usize,
+    accepting: Vec<usize>,
+}
+
+impl Regular {
+    /// Build a regular constraint over `vars` with the given DFA.
+    ///
+    /// Panics if `initial` or any accepting state is out of range, or a
+    /// transition references an unknown state.
+    pub fn new(
+        vars: Vec<usize>,
+        transitions: Vec<(usize, usize, usize)>,
+        initial: usize,
+        accepting: Vec<usize>,
+        num_states: usize,
+    ) -> Self {
+        assert!(initial < num_states, "initial state out of range");
+        assert!(accepting.iter().all(|&s| s < num_states), "accepting state out of range");
+        assert!(
+            transitions.iter().all(|&(f, _, t)| f < num_states && t < num_states),
+            "transition state out of range"
+        );
+        Self { vars, transitions, initial, accepting }
+    }
+
+    fn forward(&self, doms: &[Domain]) -> Vec<Vec<usize>> {
+        // F[i] = states reachable after consuming positions 0..i.
+        let n = self.vars.len();
+        let mut f = vec![Vec::new(); n + 1];
+        f[0].push(self.initial);
+        for i in 0..n {
+            let mut next: Vec<usize> = Vec::new();
+            for &(from, sym, to) in &self.transitions {
+                if f[i].contains(&from) && doms[self.vars[i]].contains(sym) && !next.contains(&to) {
+                    next.push(to);
+                }
+            }
+            f[i + 1] = next;
+        }
+        f
+    }
+
+    fn backward(&self, doms: &[Domain]) -> Vec<Vec<usize>> {
+        // B[i] = states from which some accepting state is reachable using
+        // positions i..n.
+        let n = self.vars.len();
+        let mut b = vec![Vec::new(); n + 1];
+        b[n] = self.accepting.clone();
+        for i in (0..n).rev() {
+            let mut prev: Vec<usize> = Vec::new();
+            for &(from, sym, to) in &self.transitions {
+                if b[i + 1].contains(&to)
+                    && doms[self.vars[i]].contains(sym)
+                    && !prev.contains(&from)
+                {
+                    prev.push(from);
+                }
+            }
+            b[i] = prev;
+        }
+        b
+    }
+}
+
+impl Constraint for Regular {
+    fn vars(&self) -> &[usize] {
+        &self.vars
+    }
+
+    fn propagate(&self, doms: &mut [Domain]) -> Result<(), Inconsistency> {
+        let f = self.forward(doms);
+        // Quick reject: no accepting state reachable at all.
+        if f[self.vars.len()].iter().all(|s| !self.accepting.contains(s)) {
+            return Err(Inconsistency);
+        }
+        let b = self.backward(doms);
+        let n = self.vars.len();
+        for i in 0..n {
+            let mut supported = Vec::new();
+            for &(from, sym, to) in &self.transitions {
+                if f[i].contains(&from) && b[i + 1].contains(&to) && !supported.contains(&sym) {
+                    supported.push(sym);
+                }
+            }
+            let changed = doms[self.vars[i]].retain(|v| supported.contains(&v));
+            if changed && doms[self.vars[i]].is_empty() {
+                return Err(Inconsistency);
+            }
+        }
+        Ok(())
+    }
+
+    fn check(&self, assign: &[usize]) -> bool {
+        let mut state = self.initial;
+        for &v in &self.vars {
+            let sym = assign[v];
+            match self.transitions.iter().find(|&&(f, s, _)| f == state && s == sym) {
+                Some(&(_, _, to)) => state = to,
+                None => return false,
+            }
+        }
+        self.accepting.contains(&state)
+    }
+}
+
+/// Circuit constraint: `vars[i] = j` means "node `i`'s successor is node
+/// `j`". Enforces that the successors form a single Hamiltonian cycle over
+/// all `n` nodes: every value distinct (a permutation), no self-loops, and
+/// no sub-cycle shorter than `n`.
+///
+/// Propagation removes self-loops, applies all-different singleton
+/// reasoning, prunes successor choices that would close a premature cycle,
+/// and fails when some node loses every possible predecessor.
+pub struct Circuit {
+    vars: Vec<usize>,
+}
+
+impl Circuit {
+    /// Build over the successor variables of nodes `0..vars.len()`.
+    pub fn new(vars: Vec<usize>) -> Self {
+        Self { vars }
+    }
+
+    /// Successor map implied by currently-fixed variables (`None` if the
+    /// variable is not yet a singleton).
+    fn fixed_successors(&self, doms: &[Domain]) -> Vec<Option<usize>> {
+        self.vars.iter().map(|&v| doms[v].is_singleton().then(|| doms[v].value())).collect()
+    }
+}
+
+impl Constraint for Circuit {
+    fn vars(&self) -> &[usize] {
+        &self.vars
+    }
+
+    fn propagate(&self, doms: &mut [Domain]) -> Result<(), Inconsistency> {
+        let n = self.vars.len();
+
+        // 1. No self-loops.
+        for (i, &v) in self.vars.iter().enumerate() {
+            if doms[v].remove(i) && doms[v].is_empty() {
+                return Err(Inconsistency);
+            }
+        }
+
+        // 2. All-different singleton propagation.
+        let singles: Vec<(usize, usize)> = self
+            .vars
+            .iter()
+            .enumerate()
+            .filter(|&(_, &v)| doms[v].is_singleton())
+            .map(|(i, &v)| (i, doms[v].value()))
+            .collect();
+        for &(si, val) in &singles {
+            for (i, &v) in self.vars.iter().enumerate() {
+                if i != si && doms[v].remove(val) && doms[v].is_empty() {
+                    return Err(Inconsistency);
+                }
+            }
+        }
+
+        // 3. Every node needs at least one possible predecessor.
+        for node in 0..n {
+            let supported =
+                self.vars.iter().enumerate().any(|(i, &v)| i != node && doms[v].contains(node));
+            if !supported {
+                return Err(Inconsistency);
+            }
+        }
+
+        // 4. Closed sub-cycle among already-fixed successors: if following
+        //    the fixed chain from a fixed node returns to it without
+        //    covering all n nodes, no completion can merge the cycles.
+        let succ_fixed = self.fixed_successors(doms);
+        for i in 0..n {
+            if succ_fixed[i].is_none() {
+                continue;
+            }
+            let mut cur = i;
+            let mut visited = vec![false; n];
+            let mut count = 0usize;
+            loop {
+                if visited[cur] {
+                    break; // returned to a node on this walk: cycle closed
+                }
+                visited[cur] = true;
+                count += 1;
+                match succ_fixed[cur] {
+                    Some(next) => cur = next,
+                    None => break,
+                }
+            }
+            if visited[i] && count > 0 && cur == i && count < n {
+                return Err(Inconsistency);
+            }
+        }
+
+        // 5. Premature-cycle pruning: assigning x_i = j closes a cycle
+        //    through i; reject unless that cycle would span all n nodes.
+        let succ = self.fixed_successors(doms);
+        for (i, &v) in self.vars.iter().enumerate() {
+            if doms[v].is_singleton() {
+                continue;
+            }
+            let candidates: Vec<usize> = doms[v].values().to_vec();
+            for &j in &candidates {
+                // Walk the fixed-successor chain starting at j.
+                let mut cur = j;
+                let mut visited = vec![false; n];
+                let mut steps = 0usize;
+                let mut reaches_i = false;
+                let mut closes_early = false;
+                loop {
+                    if cur == i {
+                        reaches_i = true;
+                        break;
+                    }
+                    if visited[cur] {
+                        // Closed a cycle that does not pass through i.
+                        closes_early = true;
+                        break;
+                    }
+                    visited[cur] = true;
+                    steps += 1;
+                    match succ[cur] {
+                        Some(next) => cur = next,
+                        None => break, // chain ends at an unfixed variable
+                    }
+                }
+                let premature = reaches_i && steps < n - 1;
+                if premature || closes_early {
+                    doms[v].remove(j);
+                    if doms[v].is_empty() {
+                        return Err(Inconsistency);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check(&self, assign: &[usize]) -> bool {
+        let n = self.vars.len();
+        // Permutation without self-loops.
+        let mut seen = vec![false; n];
+        for (i, &v) in self.vars.iter().enumerate() {
+            let j = assign[v];
+            if j >= n || j == i || seen[j] {
+                return false;
+            }
+            seen[j] = true;
+        }
+        // Single cycle covering every node: walk n successors from node 0
+        // and require every node to be visited exactly once en route.
+        let mut cur = 0usize;
+        let mut visited = vec![false; n];
+        for _ in 0..n {
+            if visited[cur] {
+                return false;
+            }
+            visited[cur] = true;
+            cur = assign[self.vars[cur]];
+        }
+        cur == 0 && visited.iter().all(|&b| b)
+    }
+}
+
 /// Reified constraint `b <-> inner`.
 pub struct Reified {
     inner: Box<dyn Constraint>,

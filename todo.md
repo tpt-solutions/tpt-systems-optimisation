@@ -191,8 +191,8 @@ warm-start hint. The crate was also added as a dependency on
 - [x] Implement security-constrained OPF (SC-OPF) with N-1 contingency constraints — `src/opf.rs` (`sc_opf`)
 - [x] Implement graph preprocessing utilities: cycle detection, bridge identification, biconnected component decomposition (`graph_preprocess.rs`) — series-parallel reduction not confirmed present, needs a closer look
 - [x] Implement dynamic networks (time-varying supplies) with warm-starting between periods — `src/dynamic.rs` (`DynamicNetwork`)
-- [ ] Unit tests + doctests — `cargo test -p tpt-opt-network` passes (7 tests); doctests not yet added
-- [ ] Integration test: at least one Netlib-style or hand-crafted min-cost-flow/OPF benchmark — not present
+- [x] Unit tests + doctests — 7 lib tests pass; crate-level doctest added to `lib.rs` (min-cost-flow example with verified optimum)
+- [x] Integration test: at least one Netlib-style or hand-crafted min-cost-flow/OPF benchmark — `tests/benchmark.rs`: hand-crafted 4-node min-cost-flow instance with unique analytic optimum 15, solved by **both** algorithms (successive shortest path + network simplex), cross-validated against each other and the analytic value, with flow-conservation/capacity checks plus an infeasible-capacity variant
 - [x] Rustdoc — doc comments present throughout (including the new `opf`/`dynamic` modules)
 - [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-network --all-targets --all-features -- -D warnings` passes with zero warnings
 - [x] `cargo deny check` clean — verified (workspace-wide, now that `deny.toml` is fixed)
@@ -207,26 +207,37 @@ warm-start hint. The crate was also added as a dependency on
 *Mixed-Integer Nonlinear Programming. Depends on: tpt-opt-core, tpt-opt-milp
 (for OA master problems), tpt-math-optimize-convex, tpt-math-optimize-general.*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
-no implementation; `Cargo.toml` dependencies are already wired.
+**Status: implementation complete and verified.** All three solver families
+(outer approximation, generalized Benders, SQP branch-and-bound) plus the
+modelling extras (indicator-gated nonlinear constraints, logical constraints,
+complementarity, McCormick/αBB relaxations) and convergence certificates are
+implemented. 19 lib tests + 2 integration benchmark tests + doctests pass;
+fmt/clippy `-D warnings` clean. The integration benchmark cross-validates OA
+vs. GBD on a convex instance and SQP B&B vs. integer enumeration on a
+non-convex one. During bring-up, three solver-correctness bugs were found and
+fixed in the shared `tpt-math-optimize-general` AL shim (dev path-dep):
+multiplier updates now only fire after a *settled* inner solve, convergence
+additionally requires a complementarity check (λ·|c| ≈ 0), and the inner
+budget was raised — without these, degenerate AL fixed points masqueraded as
+optima and broke OA/GBD/SQP on instances with active-constraint solutions.
 
 - [x] Scaffold `crates/tpt-opt-minlp/` (empty stub only)
 - [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-optimize-general`
-- [ ] Implement outer-approximation (OA) for convex MINLP (MILP master + NLP subproblems)
-- [ ] Implement generalized Benders decomposition (GBD) for complicating variables
-- [ ] Implement sequential quadratic programming (SQP) branch-and-bound for non-convex MINLP
-- [ ] Implement convex relaxations: McCormick envelopes, alpha-BB techniques
-- [ ] Implement indicator constraints with nonlinear consequents
-- [ ] Implement logical constraints (AND/OR/XOR on binary variables)
-- [ ] Implement complementarity constraints
-- [ ] Implement convergence certificates + duality gap tracking
-- [ ] Unit tests + doctests
-- [ ] Integration test: at least one MINLPLib benchmark instance
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Implement outer-approximation (OA) for convex MINLP (MILP master + NLP subproblems)
+- [x] Implement generalized Benders decomposition (GBD) for complicating variables
+- [x] Implement sequential quadratic programming (SQP) branch-and-bound for non-convex MINLP
+- [x] Implement convex relaxations: McCormick envelopes, alpha-BB techniques
+- [x] Implement indicator constraints with nonlinear consequents
+- [x] Implement logical constraints (AND/OR/XOR on binary variables)
+- [x] Implement complementarity constraints
+- [x] Implement convergence certificates + duality gap tracking
+- [x] Unit tests + doctests — 19 lib tests + doctests pass; per-module coverage (model, oa, gbd, sqp, relax, alphabb, logical, complementarity, certificates, subproblem)
+- [ ] Integration test: at least one MINLPLib benchmark instance — hand-crafted cross-validation benchmark present (`tests/benchmark.rs`: OA↔GBD agreement on a convex instance, SQP B&B vs. integer enumeration on a non-convex instance); a real MINLPLib corpus runner remains future work (see Benchmark corpora size risk)
+- [x] Rustdoc — crate-level + public API docs throughout
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-minlp --all-targets --all-features -- -D warnings` passes with zero warnings
+- [x] `cargo deny check` clean — verified workspace-wide (no new dependencies introduced)
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-minlp/README.md`, `CHANGELOG.md`)
+- [x] Crates.io metadata — `description` added; `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-minlp` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -236,12 +247,15 @@ no implementation; `Cargo.toml` dependencies are already wired.
 *Constraint programming engine. Depends on: tpt-opt-core.*
 
 **Status: core engine implemented and tested.** Integer domains (`domain.rs`),
-a propagation fixpoint over per-constraint filters plus a first-fail
-backtracking search (`solver.rs`, `solve`/`solutions`), linear/equality
-constraints, and globals `alldifferent`, `cumulative`, `element`, `table`
-plus reification (`constraints.rs`). 4 unit tests pass (incl. n-queens);
-fmt/clippy clean workspace-wide. Remaining: named AC algorithms, `regular`,
-`circuit`, richer search strategies, backjumping.
+a propagation fixpoint over per-constraint filters plus first-fail
+backtracking search with **conflict-directed backjumping and bounded no-good
+recording** (`solver.rs`, `solve`/`solutions`; failure attribution via
+`fixpoint_report`), linear/equality constraints, and globals `alldifferent`,
+`cumulative`, `element`, `table`, `regular` (DFA sequence constraints with
+forward/backward reachability propagation), `circuit` (Hamiltonian cycle:
+self-loops, permutation, closed-sub-cycle detection, premature-cycle pruning,
+predecessor support) plus reification (`constraints.rs`). 10 unit tests pass
+(incl. n-queens); fmt/clippy `-D warnings` clean.
 
 - [x] Scaffold `crates/tpt-opt-cp/`
 - [x] Wire deps: `tpt-opt-core`
@@ -250,17 +264,17 @@ fmt/clippy clean workspace-wide. Remaining: named AC algorithms, `regular`,
 - [x] Implement global constraint: `cumulative` (task list + capacity; time-table/energetic-reasoning refinements remain future work)
 - [x] Implement global constraint: `element`
 - [x] Implement global constraint: `table` (tuple enumeration; full GAC refinement remains future work)
-- [ ] Implement global constraint: `regular` (automaton-based sequence constraints) — not started
-- [ ] Implement global constraint: `circuit` (Hamiltonian cycle) — not started
+- [x] Implement global constraint: `regular` (automaton-based sequence constraints) — forward/backward reachability filtering; value-graph GAC for arbitrary DFAs is the same algorithm here since transitions are enumerated per position
+- [x] Implement global constraint: `circuit` (Hamiltonian cycle) — successor-variable encoding; stronger path/cycle reasoning (e.g. distinct-predecessor Hall sets) remains future work
 - [x] Implement search strategies: first-fail (smallest-domain variable selection); domain splitting, impact-based and activity-based selection remain future work
 - [x] Implement reification (constraints → boolean variables) (`Reified`)
-- [ ] Implement conflict-directed backjumping + no-good recording — not started
-- [x] Unit tests + doctests (4 tests incl. n-queens via alldifferent + linear reification of diagonals)
-- [ ] Integration test: at least one CSPLib benchmark instance — not present
+- [x] Implement conflict-directed backjumping + no-good recording — CBJ with per-decision conflict sets from the failing constraint's scope, static-conflict-neighbour guard, and bounded no-good store (512 entries × arity ≤ 10); enumeration keeps exhaustive DFS by design
+- [x] Unit tests + doctests (10 tests incl. n-queens, regular no-run-of-three-1s + forced-prefix propagation, circuit feasible/disjoint-cycle-infeasible, CBJ-vs-enumeration agreement on feasible and infeasible models)
+- [x] Integration test: at least one CSPLib benchmark instance — `tests/csplib.rs`: **CSPLib prob019 Magic Square (order 3)** solved end-to-end; verifies a valid solution and the exact solution count (8 = symmetries of the Lo Shu square), exercising `AllDifferent` + linear propagation and CBJ search
 - [x] Rustdoc — module-level + public API docs present
-- [x] `cargo fmt` / `clippy` clean — verified workspace-wide
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-cp --all-targets --all-features -- -D warnings` passes with zero warnings
 - [x] `cargo deny check` clean — verified workspace-wide
-- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-cp/README.md`, `CHANGELOG.md`)
+- [x] README.md + CHANGELOG.md — updated with the new globals and CBJ search
 - [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-cp` name on crates.io
 - [ ] `cargo package --list` clean
@@ -301,23 +315,27 @@ tpt-opt-heuristic (for NSGA-II's GA machinery, if reused).*
 **Status: core implemented and tested.** Pareto dominance/front extraction +
 epsilon indicator (`dominance.rs`), exact 2-D and WFG N-D hypervolume
 (`hypervolume.rs`), objective normalisation (`normalizer.rs`), a seeded
-self-contained NSGA-II (`nsga2.rs`), and MILP-backed scalarisation with both
-weighted-sum and ε-constraint methods (`scalarize.rs`). 11 unit tests pass;
-fmt/clippy clean workspace-wide; README/CHANGELOG and crates.io metadata
-added. Remaining: Tchebycheff scalarisation, NSGA-III reference points,
-decision-making utilities.
+self-contained NSGA-II (`nsga2.rs`), **NSGA-III with Das–Dennis reference
+directions, custom preference directions, ASF/hyperplane normalisation and
+deterministic niching selection** (`nsga3.rs`), **decision-making utilities —
+knee-point detection (chord-distance with L2 fallback for 2-D, ASF knee for
+M ≥ 3), envelope trade-off ratios, deterministic k-means clustering**
+(`decision.rs`), and MILP-backed scalarisation with both weighted-sum and
+ε-constraint methods (`scalarize.rs`). 18 unit tests pass; fmt/clippy
+`-D warnings` clean; README/CHANGELOG and crates.io metadata added.
+Remaining: Tchebycheff scalarisation.
 
 - [x] Scaffold `crates/tpt-opt-multi/`
 - [x] Wire deps: `tpt-opt-core`, `tpt-opt-heuristic`
 - [x] Implement ε-constraint method (`solve_epsilon_constraint`, building on `epsilon_constraint_model`)
 - [x] Implement weighted sum scalarization (`solve_weighted_sum`) — weighted **Tchebycheff** with adaptive weights remains future work
 - [x] Implement NSGA-II (fast non-dominated sorting, crowding distance, seeded RNG)
-- [ ] Implement NSGA-III style reference-point preference articulation — not started
+- [x] Implement NSGA-III style reference-point preference articulation — `das_dennis` structured directions, `Nsga3::with_reference_directions` for custom preference regions, ASF extreme-point normalisation with hyperplane intercepts (Gaussian elimination + max-per-axis fallback), and deterministic niche-fill environmental selection
 - [x] Implement hypervolume calculation (exact 2-D + WFG algorithm for N-D)
 - [x] Implement Pareto dominance checking + epsilon-indicator (`dominates`, `pareto_front`, `epsilon_indicator`)
 - [x] Implement objective normalization for disparate scales (`ObjectiveNormalizer`)
-- [ ] Implement decision-making utilities: knee point detection, trade-off analysis, solution clustering — not started
-- [x] Unit tests + doctests (11 tests across dominance/hypervolume/nsga2/scalarize)
+- [x] Implement decision-making utilities: knee point detection, trade-off analysis, solution clustering — `knee_point` (max chord distance for 2-D convex fronts, L2-to-ideal fallback for degenerate/linear fronts, ASF minimax knee for M ≥ 3), `tradeoff_ratios` (envelope-based m×m sacrifice matrix), `cluster_solutions` (deterministic spread-seeded k-means with Lloyd iterations)
+- [x] Unit tests + doctests (18 tests across dominance/hypervolume/nsga2/nsga3/decision/scalarize — incl. Das–Dennis counts, front spread, direction-bias concentration, same-seed determinism, knee/tradeoff/clustering semantics)
 - [x] Rustdoc — crate-level + public API docs present
 - [x] `cargo fmt` / `clippy` clean — verified workspace-wide
 - [x] `cargo deny check` clean — verified workspace-wide
@@ -332,23 +350,37 @@ decision-making utilities.
 *Optimization under uncertainty. Depends on: tpt-opt-core, tpt-opt-milp,
 tpt-math-optimize-convex, tpt-math-prob.*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
-no implementation; `Cargo.toml` dependencies are already wired.
+**Status: implementation complete and verified.** Six modules: two-stage
+extensive forms (`scenario::TwoStageProblem`) and multi-stage scenario trees
+with prefix-merged non-anticipativity (`multi_stage_model`); generic SAA with
+statistical lower/upper bounds and gap CIs (`saa::SaaSolver`); VSS/EVPI
+(`value`); chance constraints via scenario/VaR binaries plus Gaussian
+deterministic equivalents with an Acklam inverse-normal CDF (`chance`);
+Bertsimas–Sim budgeted reformulation + conservative ellipsoidal reformulation
+(`robust`); box/moment DRO (closed-form worst case + cutting-plane decision
+solver) and Wasserstein-ball worst case for linear losses (`dro`). 12
+integration tests validate every framework against hand-computed optima
+(news-vendor RP*/WS/EEV/VSS/EVPI = 8/6/10/2/2, VaR budgets, Gaussian
+protection levels, Γ-interpolation, Wasserstein margins) plus a crate-level
+doctest; fmt/clippy `-D warnings` clean; deny clean. During bring-up the
+multi-stage tree builder was rewritten (marginal node probabilities at every
+node, correct prefix-chain coefficient mapping) and the recourse row-sense
+direction bug (`Ge` → `Le`) was fixed.
 
 - [x] Scaffold `crates/tpt-opt-robust/` (empty stub only)
 - [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`, `tpt-math-prob`
-- [ ] Implement scenario-based stochastic programming (two-stage and multi-stage, recourse decisions)
-- [ ] Implement sample average approximation (SAA) with statistical confidence intervals
-- [ ] Implement adjustable robust optimization (ARO): budgeted uncertainty sets (Γ-robustness), ellipsoidal uncertainty sets, tractable LP/SOCP/SDP reformulations
-- [ ] Implement chance constraints (scenario approximation + conservative deterministic equivalents)
-- [ ] Implement distributionally robust optimization: moment-based + Wasserstein-ball ambiguity sets
-- [ ] Implement value of stochastic solution (VSS) and expected value of perfect information (EVPI) calculations
-- [ ] Unit tests + doctests
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Implement scenario-based stochastic programming (two-stage and multi-stage, recourse decisions)
+- [x] Implement sample average approximation (SAA) with statistical confidence intervals
+- [x] Implement adjustable robust optimization (ARO): budgeted uncertainty sets (Γ-robustness), ellipsoidal uncertainty sets, tractable LP/SOCP/SDP reformulations — exact LP reformulations for budgeted sets; ellipsoidal sets handled by a conservative column-norm linearisation (SOCP/SDP remain future work since the bundled solvers are LP/MILP only)
+- [x] Implement chance constraints (scenario approximation + conservative deterministic equivalents)
+- [x] Implement distributionally robust optimization: moment-based + Wasserstein-ball ambiguity sets
+- [x] Implement value of stochastic solution (VSS) and expected value of perfect information (EVPI) calculations
+- [x] Unit tests + doctests — 12 integration tests against hand-computed optima + 1 crate-level doctest pass
+- [x] Rustdoc — crate-level overview + public API docs throughout all six modules
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-robust --all-targets --all-features -- -D warnings` passes with zero warnings
+- [x] `cargo deny check` clean — verified workspace-wide
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-robust/README.md`, `CHANGELOG.md`)
+- [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-robust` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean

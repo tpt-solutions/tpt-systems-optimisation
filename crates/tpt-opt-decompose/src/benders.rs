@@ -26,7 +26,7 @@
 use std::vec::Vec;
 
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
-use tpt_opt_core::{OptError, SolverStatus};
+use tpt_opt_core::{OptError, SolverStatus, VarBound};
 use tpt_opt_milp::lp::{solve_lp, LpStatus};
 use tpt_opt_milp::MilpSolver;
 
@@ -118,9 +118,9 @@ pub struct BendersResult {
 enum BlockEval {
     /// Recourse feasible: optimal value and an optimal dual π.
     Feasible { q: f64, pi: Vec<f64> },
-    /// Recourse infeasible: phase-1 value plus its Farkas certificate π
+    /// Recourse infeasible: Farkas certificate π from the phase-1 dual
     /// (satisfies `Aᵀπ ≤ 0`, `πᵀb(x̂) > 0`).
-    Infeasible { phase1: f64, farkas_pi: Vec<f64> },
+    Infeasible { farkas_pi: Vec<f64> },
 }
 
 /// Configurable Benders driver over [`BendersProblem`].
@@ -217,7 +217,7 @@ impl<'a> BendersSolver<'a> {
                 return Err(OptError::invalid_model("recourse dual infeasible"));
             }
             if p1.objective > 1e-7 {
-                out.push(BlockEval::Infeasible { phase1: p1.objective, farkas_pi: p1.x });
+                out.push(BlockEval::Infeasible { farkas_pi: p1.x });
                 continue;
             }
 
@@ -333,9 +333,11 @@ impl<'a> BendersSolver<'a> {
             let mut restricted = false;
             if tr_delta.is_finite() {
                 restricted = true;
-                for j in 0..n1 {
-                    let lo = (best_x[j] - tr_delta).max(self.problem.first_bounds[j].0);
-                    let hi = (best_x[j] + tr_delta).min(self.problem.first_bounds[j].1);
+                for (j, (&xj, &(bl, bu))) in
+                    best_x.iter().zip(self.problem.first_bounds.iter()).enumerate()
+                {
+                    let lo = (xj - tr_delta).max(bl);
+                    let hi = (xj + tr_delta).min(bu);
                     model.variables[j].bound = if self.problem.first_integer[j] {
                         VarBound::integer(lo, hi)
                     } else {
@@ -381,12 +383,19 @@ impl<'a> BendersSolver<'a> {
                 match ev {
                     BlockEval::Infeasible { farkas_pi, .. } => {
                         all_feasible = false;
+                        // Farkas cut: any recourse-feasible x obeys
+                        // πᵀβ − (Γᵀπ)·x ≤ 0, stored as α + g·x ≤ 0 with
+                        // α = πᵀβ and g = −Γᵀπ.
                         let beta_v: Vec<f64> = rows.iter().map(|r| r.beta).collect();
                         let gamma_m: Vec<Vec<f64>> = rows.iter().map(|r| r.gamma.clone()).collect();
                         let alpha = dot(farkas_pi, &beta_v);
                         let g: Vec<f64> = (0..n1)
                             .map(|j| {
-                                gamma_m.iter().enumerate().map(|(r, gr)| farkas_pi[r] * gr[j]).sum::<f64>()
+                                -gamma_m
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(r, gr)| farkas_pi[r] * gr[j])
+                                    .sum::<f64>()
                             })
                             .collect();
                         feas_cuts.push((alpha, g));
@@ -416,12 +425,18 @@ impl<'a> BendersSolver<'a> {
                         };
                         best_recourse[k] =
                             primal_recourse(rows, *n_y, &self.problem.blocks[k].cost, &x_hat)?;
+                        // Optimality cut θ_k ≥ πᵀβ − (Γᵀπ)·x, stored as
+                        // α + g·x with α = πᵀβ and g = −Γᵀπ.
                         let beta_v: Vec<f64> = rows.iter().map(|r| r.beta).collect();
                         let gamma_m: Vec<Vec<f64>> = rows.iter().map(|r| r.gamma.clone()).collect();
                         let alpha = dot(&pi_use, &beta_v);
                         let g: Vec<f64> = (0..n1)
                             .map(|j| {
-                                gamma_m.iter().enumerate().map(|(r, gr)| pi_use[r] * gr[j]).sum::<f64>()
+                                -gamma_m
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(r, gr)| pi_use[r] * gr[j])
+                                    .sum::<f64>()
                             })
                             .collect();
                         opt_cuts.push((k, alpha, g));
@@ -444,8 +459,11 @@ impl<'a> BendersSolver<'a> {
 
             // Convergence: gap closed on an UNRESTRICTED master certifies
             // global optimality; under stabilisation, drop the restriction
-            // and require one more confirming iteration.
-            let gap_closed = best_ub - lb <= self.tolerance * (1.0 + best_ub.abs());
+            // and require one more confirming iteration. The finite-UB guard
+            // matters: with no incumbent yet, `inf − lb ≤ inf·tol` would
+            // otherwise compare true (`inf ≤ inf`).
+            let gap_closed =
+                best_ub.is_finite() && best_ub - lb <= self.tolerance * (1.0 + best_ub.abs());
             if gap_closed && !restricted {
                 break SolverStatus::Optimal;
             }
@@ -480,25 +498,22 @@ fn pareto_dual(
     q_hat: f64,
 ) -> Result<Option<Vec<f64>>, OptError> {
     let m = beta.len();
-    let n_y = d.len();
     let mut model = Model::new(m);
     for v in model.variables.iter_mut() {
         v.bound = VarBound::continuous(0.0, 1e12);
     }
-    for j in 0..n_y {
+    for (j, &dj) in d.iter().enumerate() {
         let idx: Vec<usize> = (0..m).collect();
         let coeffs: Vec<f64> = (0..m).map(|r| a[r][j]).collect();
-        model.add_constraint(Constraint::le(idx, coeffs, d[j]));
+        model.add_constraint(Constraint::le(idx, coeffs, dj));
     }
     // Near-optimality at x̂: πᵀb(x̂) ≥ Q(x̂) − ε.
-    let b_hat: Vec<f64> =
-        beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, x_hat)).collect();
+    let b_hat: Vec<f64> = beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, x_hat)).collect();
     let idx: Vec<usize> = (0..m).filter(|&r| b_hat[r] != 0.0).collect();
     let coeffs: Vec<f64> = idx.iter().map(|&r| b_hat[r]).collect();
     model.add_constraint(Constraint::ge(idx, coeffs, q_hat - 1e-7));
     // Maximise πᵀb(core).
-    let b_core: Vec<f64> =
-        beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, core)).collect();
+    let b_core: Vec<f64> = beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, core)).collect();
     let oidx: Vec<usize> = (0..m).filter(|&r| b_core[r] != 0.0).collect();
     let ocoeffs: Vec<f64> = oidx.iter().map(|&r| b_core[r]).collect();
     model.set_objective(Objective {

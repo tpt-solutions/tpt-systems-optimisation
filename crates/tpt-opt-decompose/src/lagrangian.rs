@@ -1,6 +1,6 @@
-//! Lagrangian relaxation: subgradient optimisation, a cutting-plane
-//! **bundle/level** method for the dual master, and surrogate relaxation
-//! helpers.
+//! Lagrangian relaxation: subgradient optimisation, a stabilised
+//! cutting-plane **bundle** method for the dual master, and surrogate
+//! relaxation helpers.
 //!
 //! The dual function `L(λ) = min_{x∈X} c·x + λᵀ(Ax − b)` is concave and
 //! piecewise linear; the caller supplies oracles returning `L(λ)` and any
@@ -18,11 +18,11 @@ use tpt_opt_milp::lp::{solve_lp, LpStatus};
 pub struct DualConfig {
     /// Iteration cap.
     pub max_iterations: usize,
-    /// Initial step size (diminishing rule) / Polyak scale.
+    /// Initial step size (diminishing rule) / initial trust-region radius.
     pub initial_step: f64,
     /// Known dual target for Polyak steps (`None` ⇒ diminishing steps).
     pub target: Option<f64>,
-    /// Convergence tolerance on the dual gap / level gap.
+    /// Convergence tolerance on the dual gap / master gap.
     pub tolerance: f64,
 }
 
@@ -90,10 +90,15 @@ where
     DualResult { lambda: best_lambda, value: best_val, history }
 }
 
-/// Cutting-plane **bundle/level** method: maintain every evaluated affine
-/// cut of the concave dual, alternate between solving the cut master for an
-/// upper bound `η*` and a proximity step to the level
-/// `τ = LB + α(η* − LB)` (α = ½). Every master is an LP.
+/// Stabilised cutting-plane **bundle** method for the concave dual.
+///
+/// All evaluated affine cuts `η ≤ L_k + g_kᵀ(λ − λ_k)` are kept; each round
+/// solves the cut master maximising `η` subject to an L1 trust region
+/// `‖λ − centre‖₁ ≤ Δ`. On improvement the centre moves and `Δ` grows;
+/// otherwise `Δ` shrinks around the best point. Termination requires the
+/// master gap to close at an *interior* solution (a step pinned to the
+/// trust-region boundary expands `Δ` instead of stopping, since the model
+/// still wants to move).
 pub fn lagrangian_bundle_level<F, G>(
     lambda0: Vec<f64>,
     config: &DualConfig,
@@ -104,68 +109,68 @@ where
     F: FnMut(&[f64]) -> f64,
     G: FnMut(&[f64]) -> Vec<f64>,
 {
-    let mut lambda = lambda0.iter().map(|&v| v.max(0.0)).collect::<Vec<f64>>();
+    let mut centre = lambda0.iter().map(|&v| v.max(0.0)).collect::<Vec<f64>>();
     let mut cuts: Vec<(Vec<f64>, f64, Vec<f64>)> = Vec::new(); // (λ_k, L_k, g_k)
     let mut best_val = f64::NEG_INFINITY;
-    let mut best_lambda = lambda.clone();
+    let mut best_lambda = centre.clone();
     let mut history = Vec::new();
+    let mut delta = config.initial_step.max(1e-9);
 
     for _ in 0..config.max_iterations {
-        let val = evaluate(&lambda);
-        let g = subgradient(&lambda);
+        // Evaluate at the current centre; add its cut.
+        let val = evaluate(&centre);
+        let g = subgradient(&centre);
         history.push(val);
         if val > best_val {
             best_val = val;
-            best_lambda = lambda.clone();
+            best_lambda = centre.clone();
         }
-        cuts.push((lambda.clone(), val, g));
+        cuts.push((centre.clone(), val, g));
 
-        // Envelope master: max η over the accumulated cuts.
-        let (eta_star, _) =
-            solve_envelope(&cuts, None, None)?.ok_or_else(|| {
-                tpt_opt_core::OptError::invalid_model("bundle master unbounded")
-            })?;
-        if eta_star - best_val <= config.tolerance {
+        // Cut master: max η s.t. η ≤ L_k + g_kᵀ(λ − λ_k), ‖λ−centre‖₁ ≤ Δ.
+        let (eta_star, lambda_star, at_boundary) = solve_bundle_master(&cuts, &centre, delta)?;
+        let gap_closed = eta_star - best_val <= config.tolerance * (1.0 + best_val.abs());
+        if gap_closed && !at_boundary {
             break;
         }
-        // Level point: closest λ (L1) to the current iterate with envelope ≥ τ.
-        let tau = best_val + 0.5 * (eta_star - best_val);
-        match solve_envelope(&cuts, Some(tau), Some(&lambda))? {
-            Some((_, next)) => lambda = next,
-            None => break,
+        // Adaptation: expand when the step is pinned to the boundary (the
+        // model wants to travel further), shrink when progress stalls.
+        if at_boundary {
+            delta *= 2.0;
+        } else if gap_closed || val <= best_val - config.tolerance {
+            delta = (delta / 2.0).max(1e-9);
         }
+        // Move the centre to the master point (bundle methods re-centre on
+        // the candidate even without improvement — the cut pool retains all
+        // information).
+        centre = lambda_star;
     }
 
     Ok(DualResult { lambda: best_lambda, value: best_val, history })
 }
 
-/// Solve the cut-master LP over cuts `(λ_k, L_k, g_k)`.
-///
-/// * `level = None`: maximise `η` subject to `η ≤ L_k + g_kᵀ(λ − λ_k)`
-///   for every cut and `λ ≥ 0`; returns `(η*, λ*)`.
-/// * `level = Some(τ)` with `centre`: minimise `‖λ − centre‖₁` subject to
-///   `η ≥ τ` plus the same cut rows; returns `(η, λ)`.
-fn solve_envelope(
+/// Solve the stabilised cut master. Variables: `λ ≥ 0`, slacks `s ≥ 0`
+/// (L1 deviations), free `η`. Rows: one cut row per bundle element plus two
+/// deviation rows per coordinate plus the trust-region budget `Σs ≤ Δ`.
+/// Returns `(η*, λ*, at_boundary)` where `at_boundary` indicates the chosen
+/// λ sits on the trust-region sphere (`Σs ≈ Δ`).
+fn solve_bundle_master(
     cuts: &[(Vec<f64>, f64, Vec<f64>)],
-    level: Option<f64>,
-    centre: Option<&[f64]>,
-) -> Result<Option<(f64, Vec<f64>)>, tpt_opt_core::OptError> {
-    let n = cuts[0].0.len();
-    let has_level = level.is_some();
-    let num_vars = n + 1 + usize::from(has_level) * n;
+    centre: &[f64],
+    delta: f64,
+) -> Result<(f64, Vec<f64>, bool), tpt_opt_core::OptError> {
+    let n = centre.len();
+    let num_vars = 2 * n + 1; // λ_0..n-1, s_0..n-1, η
     let mut model = Model::new(num_vars);
     for j in 0..n {
         model.variables[j].bound = VarBound::continuous(0.0, f64::INFINITY);
+        model.variables[n + j].bound = VarBound::continuous(0.0, f64::INFINITY);
     }
-    model.variables[n].bound = VarBound::continuous(f64::NEG_INFINITY, f64::INFINITY);
-    if has_level {
-        for j in 0..n {
-            model.variables[n + 1 + j].bound = VarBound::continuous(0.0, f64::INFINITY);
-        }
-    }
+    model.variables[2 * n].bound = VarBound::continuous(f64::NEG_INFINITY, f64::INFINITY);
+
     // Cut rows: η − g_kᵀλ ≤ L_k − g_kᵀλ_k.
     for (lam_k, lk, gk) in cuts {
-        let mut idx = vec![n];
+        let mut idx = vec![2 * n];
         let mut co = vec![1.0];
         for (j, &gj) in gk.iter().enumerate() {
             if gj != 0.0 {
@@ -176,42 +181,37 @@ fn solve_envelope(
         let rhs = lk - dot(gk, lam_k);
         model.add_constraint(Constraint::le(idx, co, rhs));
     }
-    if has_level {
-        // Envelope floor: η ≥ τ.
-        model.add_constraint(Constraint::ge(vec![n], vec![1.0], level.unwrap_or(0.0)));
-        // L1 proximity: |λ_j − centre_j| ≤ s_j via two rows each.
-        let centre = centre.unwrap_or(&[]);
-        for j in 0..n {
-            let cj = centre.get(j).copied().unwrap_or(0.0);
-            model.add_constraint(Constraint::le(vec![j, n + 1 + j], vec![1.0, -1.0], cj));
-            model.add_constraint(Constraint::le(vec![j, n + 1 + j], vec![-1.0, -1.0], -cj));
-        }
-        let idx: Vec<usize> = (n + 1..num_vars).collect();
-        model.set_objective(Objective {
-            sense: Sense::Minimize,
-            indices: idx,
-            coeffs: vec![1.0; n],
-            constant: 0.0,
-        });
-    } else {
-        model.set_objective(Objective {
-            sense: Sense::Maximize,
-            indices: vec![n],
-            coeffs: vec![1.0],
-            constant: 0.0,
-        });
+    // Deviation rows: |λ_j − centre_j| ≤ s_j.
+    for (j, &cj) in centre.iter().enumerate() {
+        model.add_constraint(Constraint::le(vec![j, n + j], vec![1.0, -1.0], cj));
+        model.add_constraint(Constraint::le(vec![j, n + j], vec![-1.0, -1.0], -cj));
     }
+    // Trust-region budget: Σ s_j ≤ Δ.
+    let idx: Vec<usize> = (n..2 * n).collect();
+    model.add_constraint(Constraint::le(idx, vec![1.0; n], delta));
+    // Objective: maximise η.
+    model.set_objective(Objective {
+        sense: Sense::Maximize,
+        indices: vec![2 * n],
+        coeffs: vec![1.0],
+        constant: 0.0,
+    });
+
     let lb = vec![0.0; num_vars]
         .into_iter()
         .enumerate()
-        .map(|(i, v)| if i == n && !has_level { f64::NEG_INFINITY } else { v })
+        .map(|(i, v)| if i == 2 * n { f64::NEG_INFINITY } else { v })
         .collect::<Vec<f64>>();
     let ub = vec![f64::INFINITY; num_vars];
     let sol = solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
-    Ok(match sol.status {
-        LpStatus::Optimal => Some((sol.x[n], sol.x[..n].to_vec())),
-        _ => None,
-    })
+    match sol.status {
+        LpStatus::Optimal => {
+            let slack_sum: f64 = sol.x[n..2 * n].iter().sum();
+            let at_boundary = slack_sum >= delta - 1e-7 * (1.0 + delta);
+            Ok((sol.x[2 * n], sol.x[..n].to_vec(), at_boundary))
+        }
+        _ => Err(tpt_opt_core::OptError::invalid_model("bundle master failed")),
+    }
 }
 
 fn dot(u: &[f64], v: &[f64]) -> f64 {

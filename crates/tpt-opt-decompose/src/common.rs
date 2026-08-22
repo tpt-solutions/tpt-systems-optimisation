@@ -22,9 +22,8 @@
 use std::vec::Vec;
 
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
-use tpt_opt_core::{VarBound, VarType};
-use tpt_opt_milp::lp::{solve_lp, LpSolution, LpStatus};
-use tpt_opt_milp::MilpSolver;
+use tpt_opt_core::VarBound;
+use tpt_opt_milp::lp::{solve_lp, LpSolution};
 
 /// Row sense for user-supplied rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,20 +91,18 @@ pub(crate) fn solve_block_dual(
     cap: f64,
 ) -> LpSolution {
     let m = beta.len();
-    let n_y = d.len();
     let mut model = Model::new(m);
     for v in model.variables.iter_mut() {
         v.bound = VarBound::continuous(0.0, cap);
     }
     // Dual feasibility: one row per primal (recourse) variable.
-    for j in 0..n_y {
+    for (j, &dj) in d.iter().enumerate() {
         let idx: Vec<usize> = (0..m).collect();
         let coeffs: Vec<f64> = (0..m).map(|r| a[r][j]).collect();
-        model.add_constraint(Constraint::le(idx, coeffs, d[j]));
+        model.add_constraint(Constraint::le(idx, coeffs, dj));
     }
     // Objective: maximise πᵀb(x̂).
-    let b_hat: Vec<f64> =
-        beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, x_hat)).collect();
+    let b_hat: Vec<f64> = beta.iter().zip(gamma.iter()).map(|(&b, g)| b - dot(g, x_hat)).collect();
     let idx: Vec<usize> = (0..m).filter(|&r| b_hat[r] != 0.0).collect();
     let coeffs: Vec<f64> = idx.iter().map(|&r| b_hat[r]).collect();
     model.set_objective(Objective { sense: Sense::Maximize, indices: idx, coeffs, constant: 0.0 });
@@ -117,17 +114,4 @@ pub(crate) fn solve_block_dual(
 /// Dot product of two equal-length slices (0 for mismatched lengths).
 pub(crate) fn dot(u: &[f64], v: &[f64]) -> f64 {
     u.iter().zip(v.iter()).map(|(&a, &b)| a * b).sum()
-}
-
-/// Solve a fully-built model as a pure LP (all integrality relaxed) and map
-/// the outcome onto [`LpStatus`].
-pub(crate) fn lp_status_of(sol: &LpSolution) -> LpStatus {
-    sol.status
-}
-
-/// Solve a model with [`MilpSolver`], asserting integrality metadata is
-/// respected through [`VarType`].
-pub(crate) fn solve_milp(model: &Model) -> Result<tpt_opt_core::solver::Solution, tpt_opt_core::OptError> {
-    use tpt_opt_core::solver::Solver;
-    MilpSolver::new().solve(model)
 }

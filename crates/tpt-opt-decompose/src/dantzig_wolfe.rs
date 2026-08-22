@@ -169,13 +169,7 @@ impl<'a> DantzigWolfe<'a> {
     /// Create a driver with defaults (`tolerance = 1e-7`,
     /// `max_iterations = 500`, `big_m = 1e9`).
     pub fn new(problem: &'a DwProblem) -> Self {
-        Self {
-            problem,
-            tolerance: 1e-7,
-            max_iterations: 500,
-            big_m: 1e9,
-            pool: RmpPool::new(),
-        }
+        Self { problem, tolerance: 1e-7, max_iterations: 500, big_m: 1e9, pool: RmpPool::new() }
     }
 
     /// Pricing/optimality tolerance.
@@ -261,8 +255,8 @@ impl<'a> DantzigWolfe<'a> {
         let n_y = block.cost.len();
         let mut price_cost = vec![0.0f64; n_y];
         for j in 0..n_y {
-            price_cost[j] =
-                block.cost[j] - pi.iter().zip(block.coupling.iter()).map(|(&p, row)| p * row[j]).sum::<f64>();
+            price_cost[j] = block.cost[j]
+                - pi.iter().zip(block.coupling.iter()).map(|(&p, row)| p * row[j]).sum::<f64>();
         }
         let rows = self.canon_block(k);
         let mut model = Model::new(n_y);
@@ -294,17 +288,13 @@ impl<'a> DantzigWolfe<'a> {
             return Ok(None);
         }
         let y = sol.x;
-        let coeffs: Vec<f64> = block
-            .coupling
-            .iter()
-            .map(|row| dot(row, &y))
-            .collect();
+        let coeffs: Vec<f64> = block.coupling.iter().map(|row| dot(row, &y)).collect();
         let cost = dot(&block.cost, &y);
         Ok(Some((rc, Column { block: k, cost, coeffs, point: y })))
     }
 
     /// Run the column-generation loop.
-    pub fn solve(self) -> Result<DwResult, OptError> {
+    pub fn solve(mut self) -> Result<DwResult, OptError> {
         let m_couple = self.problem.coupling_rhs.len();
         let k_count = self.problem.blocks.len();
 
@@ -313,17 +303,18 @@ impl<'a> DantzigWolfe<'a> {
             let y0 = self.seed_point(k)?;
             let block = &self.problem.blocks[k];
             let coeffs: Vec<f64> = block.coupling.iter().map(|row| dot(row, &y0)).collect();
-            self.pool.try_insert(Column { block: k, cost: dot(&block.cost, &y0), coeffs, point: y0 });
+            self.pool.try_insert(Column {
+                block: k,
+                cost: dot(&block.cost, &y0),
+                coeffs,
+                point: y0,
+            });
         }
 
         let mut iterations = 0usize;
         let (objective, lambda, status) = loop {
             if iterations >= self.max_iterations {
-                break (
-                    f64::INFINITY,
-                    Vec::new(),
-                    SolverStatus::TimeLimit,
-                );
+                break (f64::INFINITY, Vec::new(), SolverStatus::TimeLimit);
             }
             iterations += 1;
 
@@ -376,24 +367,22 @@ impl<'a> DantzigWolfe<'a> {
                 let con = match self.problem.coupling_sense[r] {
                     RowSense::Le => Constraint::le(idx, co, self.problem.coupling_rhs[r]),
                     RowSense::Ge => Constraint::ge(idx, co, self.problem.coupling_rhs[r]),
-                    RowSense::Eq => {
-                        Constraint::equality(idx, co, self.problem.coupling_rhs[r])
-                    }
+                    RowSense::Eq => Constraint::equality(idx, co, self.problem.coupling_rhs[r]),
                 };
                 model.add_constraint(con);
             }
             // Convexity rows: Σ_{c ∈ k} λ_c = 1.
             for k in 0..k_count {
-                let idx: Vec<usize> = (0..ncols)
-                    .filter(|&c| self.pool.columns()[c].block == k)
-                    .collect();
+                let idx: Vec<usize> =
+                    (0..ncols).filter(|&c| self.pool.columns()[c].block == k).collect();
                 let co = vec![1.0; idx.len()];
                 model.add_constraint(Constraint::equality(idx, co, 1.0));
             }
 
             let lb = vec![0.0; ncols + 2 * m_couple];
             let ub = vec![f64::INFINITY; ncols + 2 * m_couple];
-            let sol = solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
+            let sol =
+                solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
             if sol.status != LpStatus::Optimal {
                 return Err(OptError::invalid_model("restricted master LP failed"));
             }
@@ -401,22 +390,24 @@ impl<'a> DantzigWolfe<'a> {
             let pi = &duals[..m_couple];
             let sigma = &duals[m_couple..m_couple + k_count];
 
-            // Artificial usage ⇒ overall infeasibility (priced out failed).
-            let art_use: f64 = sol.primal[ncols..].iter().sum();
-            if art_use > 1e-6 && !self.any_improving_column(pi, sigma)? {
-                break (sol.objective, sol.primal[..ncols].to_vec(), SolverStatus::Infeasible);
-            }
-
             // ---- Pricing ---------------------------------------------------
             let mut added = false;
-            for k in 0..k_count {
-                if let Some((_rc, col)) = self.price_block(k, pi, sigma[k])? {
+            for (k, &sk) in sigma.iter().enumerate() {
+                if let Some((_rc, col)) = self.price_block(k, pi, sk)? {
                     added |= self.pool.try_insert(col);
                 }
             }
+            // Artificial usage with no fresh column ⇒ the coupling demand
+            // cannot be met by any block polyhedron point: infeasible.
+            // (Pricing may keep re-proposing an existing column; only newly
+            // inserted columns can restore feasibility.)
+            let art_use: f64 = sol.x[ncols..].iter().sum();
+            if art_use > 1e-6 && !added {
+                break (sol.objective, sol.x[..ncols].to_vec(), SolverStatus::Infeasible);
+            }
             if !added {
                 // No negative reduced costs anywhere: optimal.
-                break (sol.objective, sol.primal[..ncols].to_vec(), SolverStatus::Optimal);
+                break (sol.objective, sol.x[..ncols].to_vec(), SolverStatus::Optimal);
             }
         };
 
@@ -441,15 +432,5 @@ impl<'a> DantzigWolfe<'a> {
             iterations,
             status,
         })
-    }
-
-    fn any_improving_column(&self, pi: &[f64], sigma: &[f64]) -> Result<bool, OptError> {
-        for k in 0..self.problem.blocks.len() {
-            if let Some((rc, _)) = self.price_block(k, pi, sigma[k])? {
-                let _ = rc;
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 }

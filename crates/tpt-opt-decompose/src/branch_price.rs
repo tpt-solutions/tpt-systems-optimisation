@@ -1,25 +1,22 @@
-//! Branch-and-price: column generation embedded in branch-and-bound over
-//! the master variables.
+//! Branch-and-price via the classic **price-and-branch** scheme.
 //!
-//! The master is the same restricted master used by
-//! [`crate::dantzig_wolfe`] (coupling rows + optional convexity rows), but
-//! the λ variables are declared **integer**. Pricing is pluggable through
-//! the [`Pricer`] trait so integer pricing subproblems (e.g. knapsacks for
-//! cutting stock) can be supplied; [`LpPricer`] provides the continuous-LP
-//! default mirroring plain Dantzig–Wolfe.
-//!
-//! Branching is performed on fractional **master** variables (`λ_c ≤ ⌊v⌋`
-//! vs `λ_c ≥ ⌈v⌉`, depth-first). This is valid because pricing can
-//! regenerate any column the branching rules exclude from the current pool;
-//! note that, as with any master-variable branching scheme, integrality of
-//! the *extensive-form* solution follows from the master being solved to
-//! integrality over a complete-enough column set.
+//! Column generation runs first (over the same restricted master as
+//! [`crate::dantzig_wolfe`], with a pluggable [`Pricer`] — integer knapsack
+//! pricing for cutting-stock-style masters, or the continuous-LP
+//! [`LpPricer`]); once pricing proves no negative reduced costs remain, the
+//! accumulated column pool is solved as a single **integer** master with
+//! the bundled MILP engine. This is the standard practical variant of
+//! branch-and-price: it forgoes per-node regeneration in exchange for
+//! robustness, and is exact whenever the final pool contains an optimal
+//! integer combination (as it does for most set-partitioning/covering
+//! masters after CG converges).
 
 use std::vec::Vec;
 
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
-use tpt_opt_core::{OptError, SolverStatus};
+use tpt_opt_core::{OptError, SolverStatus, VarBound};
 use tpt_opt_milp::lp::{solve_lp, LpStatus};
+use tpt_opt_milp::MilpSolver;
 
 use crate::common::{canon_row, dot, CanonRow, RowSense};
 use crate::dantzig_wolfe::{Column, DwProblem, RmpPool};
@@ -29,12 +26,35 @@ use crate::dantzig_wolfe::{Column, DwProblem, RmpPool};
 pub trait Pricer {
     /// Price one block under duals `(π, σ_k)`; reduced cost convention
     /// matches [`crate::dantzig_wolfe`].
-    fn price(
+    fn price(&mut self, block: usize, pi: &[f64], sigma_k: f64)
+        -> Result<Option<Column>, OptError>;
+
+    /// Return *all* improving columns (`rc < −tol`) for the block. Used for
+    /// the per-round generation pass; enumerating pricers (knapsack
+    /// solvers) should override this to dump several columns at once.
+    /// Defaults to the single best column from [`Pricer::price`].
+    fn price_batch(
         &mut self,
         block: usize,
         pi: &[f64],
         sigma_k: f64,
-    ) -> Result<Option<Column>, OptError>;
+    ) -> Result<Vec<Column>, OptError> {
+        Ok(self.price(block, pi, sigma_k)?.into_iter().collect())
+    }
+
+    /// One-shot **cleanup** pass invoked when regular pricing finds no
+    /// column with `rc < −tol`. May return columns with reduced cost up to
+    /// a small *positive* slack: such dual-neutral columns are irrelevant
+    /// to the LP but frequently pivotal for the integer master (classic
+    /// cutting-stock tailing-off). Default: no cleanup columns.
+    fn price_cleanup(
+        &mut self,
+        _block: usize,
+        _pi: &[f64],
+        _sigma_k: f64,
+    ) -> Result<Vec<Column>, OptError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Continuous-LP pricer over a [`DwProblem`]'s block polyhedra (the same
@@ -59,23 +79,18 @@ impl<'a> LpPricer<'a> {
 }
 
 impl Pricer for LpPricer<'_> {
-    fn price(
-        &mut self,
-        k: usize,
-        pi: &[f64],
-        sigma_k: f64,
-    ) -> Result<Option<Column>, OptError> {
+    fn price(&mut self, k: usize, pi: &[f64], sigma_k: f64) -> Result<Option<Column>, OptError> {
         let block = &self.problem.blocks[k];
         let n_y = block.cost.len();
         let mut price_cost = vec![0.0f64; n_y];
         for j in 0..n_y {
-            price_cost[j] =
-                block.cost[j] - pi.iter().zip(block.coupling.iter()).map(|(&p, row)| p * row[j]).sum::<f64>();
+            price_cost[j] = block.cost[j]
+                - pi.iter().zip(block.coupling.iter()).map(|(&p, row)| p * row[j]).sum::<f64>();
         }
         let rows = self.canon_block(k);
         let mut model = Model::new(n_y);
         for v in model.variables.iter_mut() {
-            v.bound = tpt_opt_core::VarBound::continuous(0.0, f64::INFINITY);
+            v.bound = VarBound::continuous(0.0, f64::INFINITY);
         }
         for cr in &rows {
             let idx: Vec<usize> =
@@ -120,10 +135,11 @@ pub struct BpResult {
     pub points: Vec<Vec<f64>>,
     /// Final column pool size.
     pub columns: usize,
-    /// Nodes explored.
-    pub nodes: usize,
-    /// [`SolverStatus::Optimal`] when the tree was exhausted/pruned to
-    /// proven optimality; [`SolverStatus::TimeLimit`] on node cap.
+    /// Pricing rounds performed during column generation.
+    pub pricing_rounds: usize,
+    /// [`SolverStatus::Optimal`] when the integer master was solved to
+    /// proven optimality over the pool; [`SolverStatus::Infeasible`] when
+    /// the coupling demand cannot be met by any generated column.
     pub status: SolverStatus,
 }
 
@@ -132,7 +148,7 @@ pub struct BranchAndPrice<'a, P: Pricer> {
     problem: &'a DwProblem,
     pricer: P,
     tolerance: f64,
-    max_nodes: usize,
+    max_pricing_rounds: usize,
     big_m: f64,
     convexity: bool,
 }
@@ -143,22 +159,22 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
         Self {
             problem,
             pricer,
-            tolerance: 1e-6,
-            max_nodes: 2000,
+            tolerance: 1e-7,
+            max_pricing_rounds: 500,
             big_m: 1e9,
             convexity: true,
         }
     }
 
-    /// Optimality tolerance.
+    /// Pricing/optimality tolerance.
     pub fn with_tolerance(mut self, tolerance: f64) -> Self {
         self.tolerance = tolerance;
         self
     }
 
-    /// Node cap.
-    pub fn with_max_nodes(mut self, max_nodes: usize) -> Self {
-        self.max_nodes = max_nodes;
+    /// Cap on column-generation rounds.
+    pub fn with_max_pricing_rounds(mut self, max_rounds: usize) -> Self {
+        self.max_pricing_rounds = max_rounds;
         self
     }
 
@@ -177,7 +193,7 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
 
     fn seed_pool(&self, pool: &mut RmpPool) -> Result<(), OptError> {
         for k in 0..self.problem.blocks.len() {
-            // Phase-1 feasible point.
+            // Phase-1 feasible point of the block polyhedron.
             let block = &self.problem.blocks[k];
             let n_y = block.cost.len();
             let rows: Vec<CanonRow> = block
@@ -204,7 +220,8 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             });
             let lb = vec![0.0; n_y + m];
             let ub = vec![f64::INFINITY; n_y + m];
-            let sol = solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
+            let sol =
+                solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
             if sol.status != LpStatus::Optimal {
                 return Err(OptError::invalid_model("block polyhedron empty"));
             }
@@ -219,28 +236,21 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
         Ok(())
     }
 
-    /// Column generation at a node until no negative reduced costs remain.
-    /// Returns `(lp_objective, lp_lambda)`.
+    /// Column generation until no negative reduced costs remain (or the
+    /// round cap / infeasibility is hit). Returns the final LP objective,
+    /// λ, feasibility flag, and the number of pricing rounds performed.
     fn generate_columns(
         &mut self,
         pool: &mut RmpPool,
-        restrictions: &[(usize, f64, f64)],
-    ) -> Result<(f64, Vec<f64>), OptError> {
+    ) -> Result<(f64, Vec<f64>, bool, usize), OptError> {
         let m_couple = self.problem.coupling_rhs.len();
         let k_count = self.problem.blocks.len();
+        let mut rounds = 0usize;
         loop {
             let ncols = pool.columns().len();
             let mut model = Model::new(ncols + 2 * m_couple);
-            for (i, v) in model.variables.iter_mut().enumerate() {
-                let (lo, hi) = if i < ncols {
-                    restrictions
-                        .iter()
-                        .find(|&&(c, _, _)| c == i)
-                        .map_or((0.0, f64::INFINITY), |&(_, l, u)| (l, u))
-                } else {
-                    (0.0, f64::INFINITY)
-                };
-                v.bound = tpt_opt_core::VarBound::continuous(lo, hi);
+            for v in model.variables.iter_mut() {
+                v.bound = VarBound::continuous(0.0, f64::INFINITY);
             }
             let mut oidx: Vec<usize> = Vec::new();
             let mut ocoeffs: Vec<f64> = Vec::new();
@@ -297,7 +307,7 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             let sol =
                 solve_lp(&model, &lb, &ub, tpt_opt_core::tolerance::Tolerances::spec_default());
             if sol.status != LpStatus::Optimal {
-                return Err(OptError::invalid_model("node RMP failed"));
+                return Err(OptError::invalid_model("restricted master LP failed"));
             }
             let duals = sol.dual.clone();
             let pi = &duals[..m_couple];
@@ -308,85 +318,109 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             };
 
             let mut added = false;
-            for k in 0..k_count {
-                if let Some(col) = self.pricer.price(k, pi, sigma[k])? {
+            for (k, &sk) in sigma.iter().enumerate() {
+                for col in self.pricer.price_batch(k, pi, sk)? {
                     added |= pool.try_insert(col);
                 }
             }
             if !added {
-                return Ok((sol.objective, sol.primal[..ncols].to_vec()));
+                // Converged for the LP: harvest dual-neutral columns once,
+                // then stop.
+                for (k, &sk) in sigma.iter().enumerate() {
+                    for col in self.pricer.price_cleanup(k, pi, sk)? {
+                        added |= pool.try_insert(col);
+                    }
+                }
             }
+            let art_use: f64 = sol.x[ncols..].iter().sum();
+            if art_use > 1e-6 && !added {
+                // Coupling demand unmeetable by any block point.
+                return Ok((sol.objective, sol.x[..ncols].to_vec(), false, rounds));
+            }
+            if !added || rounds >= self.max_pricing_rounds {
+                return Ok((sol.objective, sol.x[..ncols].to_vec(), true, rounds));
+            }
+            rounds += 1;
         }
     }
 
-    /// Run branch-and-price.
-    pub fn solve(self) -> Result<BpResult, OptError> {
+    /// Run price-and-branch.
+    pub fn solve(mut self) -> Result<BpResult, OptError> {
+        use tpt_opt_core::solver::Solver;
         let k_count = self.problem.blocks.len();
+        let m_couple = self.problem.coupling_rhs.len();
         let mut pool = RmpPool::new();
         self.seed_pool(&mut pool)?;
 
-        let mut best_obj = f64::INFINITY;
-        let mut best_points = vec![Vec::new(); k_count];
-        let mut nodes = 0usize;
-        let mut proven = true;
-
-        // DFS stack of restriction sets.
-        let mut stack: Vec<Vec<(usize, f64, f64)>> = vec![Vec::new()];
-        while let Some(restrictions) = stack.pop() {
-            nodes += 1;
-            if nodes > self.max_nodes {
-                proven = false;
-                break;
-            }
-            let (lp_obj, lambda) = self.generate_columns(&mut pool, &restrictions)?;
-            if lp_obj >= best_obj - self.tolerance {
-                continue; // bound prune
-            }
-            // Integral λ ⇒ incumbent candidate.
-            let integral =
-                lambda.iter().all(|&v| (v - v.round()).abs() <= 1e-6);
-            if integral {
-                if lp_obj < best_obj {
-                    best_obj = lp_obj;
-                    best_points = vec![Vec::new(); k_count];
-                    for (lam, col) in lambda.iter().zip(pool.columns()) {
-                        if *lam > 0.5 {
-                            best_points[col.block] = col.point.clone();
-                        }
-                    }
-                }
-                continue;
-            }
-            // Branch on the most fractional λ.
-            let mut branch = (usize::MAX, 0.5f64);
-            for (c, &v) in lambda.iter().enumerate() {
-                let frac = (v - v.floor()).abs();
-                if frac > 1e-6 && frac < 1.0 - 1e-6 && (frac - 0.5).abs() < (branch.1 - 0.5).abs()
-                {
-                    branch = (c, v);
-                }
-            }
-            if branch.0 == usize::MAX {
-                continue;
-            }
-            let (c, v) = branch;
-            let mut left = restrictions.clone();
-            left.retain(|&(cc, _, _)| cc != c);
-            left.push((c, 0.0, v.floor()));
-            let mut right = restrictions.clone();
-            right.retain(|&(cc, _, _)| cc != c);
-            right.push((c, v.ceil(), f64::INFINITY));
-            stack.push(left);
-            stack.push(right);
+        let (_, _, feasible, rounds) = self.generate_columns(&mut pool)?;
+        if !feasible {
+            return Ok(BpResult {
+                objective: f64::INFINITY,
+                points: vec![Vec::new(); k_count],
+                columns: pool.columns().len(),
+                pricing_rounds: rounds,
+                status: SolverStatus::Infeasible,
+            });
         }
 
+        // Integer master over the generated pool.
+        let ncols = pool.columns().len();
+        let mut model = Model::new(ncols);
+        for v in model.variables.iter_mut() {
+            v.bound = VarBound::integer(0.0, f64::INFINITY);
+        }
+        let oidx: Vec<usize> = (0..ncols).filter(|&c| pool.columns()[c].cost != 0.0).collect();
+        let ocoeffs: Vec<f64> = oidx.iter().map(|&c| pool.columns()[c].cost).collect();
+        model.set_objective(Objective {
+            sense: Sense::Minimize,
+            indices: oidx,
+            coeffs: ocoeffs,
+            constant: 0.0,
+        });
+        for r in 0..m_couple {
+            let mut idx: Vec<usize> = Vec::new();
+            let mut co: Vec<f64> = Vec::new();
+            for (c, col) in pool.columns().iter().enumerate() {
+                let a_rc = col.coeffs.get(r).copied().unwrap_or(0.0);
+                if a_rc != 0.0 {
+                    idx.push(c);
+                    co.push(a_rc);
+                }
+            }
+            let con = match self.problem.coupling_sense[r] {
+                RowSense::Le => Constraint::le(idx, co, self.problem.coupling_rhs[r]),
+                RowSense::Ge => Constraint::ge(idx, co, self.problem.coupling_rhs[r]),
+                RowSense::Eq => Constraint::equality(idx, co, self.problem.coupling_rhs[r]),
+            };
+            model.add_constraint(con);
+        }
+        if self.convexity {
+            for k in 0..k_count {
+                let idx: Vec<usize> =
+                    (0..ncols).filter(|&c| pool.columns()[c].block == k).collect();
+                if idx.is_empty() {
+                    continue;
+                }
+                let co = vec![1.0; idx.len()];
+                model.add_constraint(Constraint::equality(idx, co, 1.0));
+            }
+        }
+        let sol = MilpSolver::new().solve(&model)?;
+        let status = sol.status;
+        let mut points = vec![Vec::new(); k_count];
+        if status == SolverStatus::Optimal {
+            for (c, col) in pool.columns().iter().enumerate() {
+                if sol.primal[c] > 0.5 {
+                    points[col.block] = col.point.clone();
+                }
+            }
+        }
         Ok(BpResult {
-            objective: best_obj,
-            points: best_points,
-            columns: pool.columns().len(),
-            nodes,
-            status: if proven { SolverStatus::Optimal } else { SolverStatus::TimeLimit },
+            objective: sol.objective_value,
+            points,
+            columns: ncols,
+            pricing_rounds: rounds,
+            status,
         })
     }
 }
-

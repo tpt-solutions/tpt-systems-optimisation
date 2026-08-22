@@ -55,11 +55,8 @@ mod tests {
 
     #[test]
     fn normalizes_into_unit_box() {
-        let n = ObjectiveNormalizer::from_samples(&[
-            vec![0.0, 10.0],
-            vec![2.0, 20.0],
-            vec![1.0, 15.0],
-        ]);
+        let n =
+            ObjectiveNormalizer::from_samples(&[vec![0.0, 10.0], vec![2.0, 20.0], vec![1.0, 15.0]]);
         let z = n.normalize(&[0.0, 10.0]);
         assert!((z[0]).abs() < 1e-9);
         assert!((z[1]).abs() < 1e-9);

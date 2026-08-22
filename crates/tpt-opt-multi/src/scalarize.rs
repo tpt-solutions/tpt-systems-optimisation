@@ -102,11 +102,7 @@ impl LinearMultiObjective {
             }
             let o = &self.objectives[j];
             let rhs = limit - o.constant;
-            model.add_constraint(Constraint::le(
-                (0..n).collect(),
-                o.coeffs.clone(),
-                rhs,
-            ));
+            model.add_constraint(Constraint::le((0..n).collect(), o.coeffs.clone(), rhs));
         }
         model
     }
@@ -139,10 +135,7 @@ pub fn term(coeffs: Vec<f64>, constant: f64) -> LinearTerm {
 }
 
 /// Solve a weighted-sum scalarisation and return the resulting objective vector.
-pub fn weighted_sum(
-    prob: &LinearMultiObjective,
-    weights: &[f64],
-) -> Result<Vec<f64>, OptError> {
+pub fn weighted_sum(prob: &LinearMultiObjective, weights: &[f64]) -> Result<Vec<f64>, OptError> {
     let x = prob.solve_weighted_sum(weights)?;
     Ok(prob.objectives.iter().map(|o| o.constant + dot(&o.coeffs, &x)).collect())
 }
@@ -187,5 +180,4 @@ mod tests {
         assert!((x[0] - 0.0).abs() < 1e-6);
         assert!((x[1] - 0.0).abs() < 1e-6);
     }
-
 }

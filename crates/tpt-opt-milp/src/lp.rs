@@ -17,6 +17,12 @@ use tpt_opt_core::{
     tolerance::Tolerances,
 };
 
+/// Sparse expression over tableau columns: `(column, coefficient)` pairs.
+type ColTerms = Vec<(usize, f64)>;
+/// Recovery entry mapping one original variable to tableau columns:
+/// `x_j = sum(coeff * y_col) + shift`.
+type RecoverEntry = (ColTerms, f64);
+
 /// Terminal status of an LP solve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LpStatus {
@@ -88,7 +94,11 @@ pub struct LpState {
     pub var_ub: Vec<f64>,
     /// Per-original-variable recovery info: `(terms, shift)` so that
     /// `x_j = sum(coeff * y_col) + shift`.
-    pub recover: Vec<(Vec<(usize, f64)>, f64)>,
+    pub recover: Vec<RecoverEntry>,
+    /// Per-column expression in original variables: `y_col =
+    /// sum(coef * x_var) + const`. `None` for artificial columns, which have
+    /// no original-space meaning (used by tableau-space cut generation).
+    pub col_expr: Vec<Option<RecoverEntry>>,
     /// Constant term of the objective.
     pub obj_constant: f64,
     /// Original model sense (retained for cut re-optimisation context).
@@ -158,14 +168,29 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         obj_constant += cj * shift;
         varmaps.push(VarMap { terms, shift });
     }
-    let recover: Vec<(Vec<(usize, f64)>, f64)> =
-        varmaps.iter().map(|v| (v.terms.clone(), v.shift)).collect();
+    let recover: Vec<RecoverEntry> = varmaps.iter().map(|v| (v.terms.clone(), v.shift)).collect();
+
+    // Original-space expression for each structural column, in column order:
+    // a finite-lb variable contributes one column (`y = x_j - lb_j`), a free
+    // variable contributes two split columns (`yp = x_j`, `ym = -x_j`).
+    let mut struct_exprs: Vec<Option<RecoverEntry>> = Vec::with_capacity(lp_cost.len());
+    for (j, v) in varmaps.iter().enumerate() {
+        for &(col, coef) in &v.terms {
+            while struct_exprs.len() < col {
+                struct_exprs.push(None);
+            }
+            struct_exprs.push(Some((vec![(j, coef)], v.shift)));
+        }
+    }
 
     // ---- 2. Build constraint rows ------------------------------------------
     struct Row {
         lhs: Vec<(usize, f64)>,
         rhs: f64,
         kind: RowKind,
+        /// Expression of the row's slack/surplus column in original
+        /// variables: `s = sum(coef * x) + const` (None for equality rows).
+        slack_expr: Option<(Vec<(usize, f64)>, f64)>,
     }
     let mut rows: Vec<Row> = Vec::with_capacity(model.constraints.len() + free_ub_rows.len());
     for c in &model.constraints {
@@ -181,8 +206,28 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 }
                 lhs
             };
-            rows.push(Row { lhs: mk(c.lower), rhs: -c.lower, kind: RowKind::Ge });
-            rows.push(Row { lhs: mk(c.upper), rhs: -c.upper, kind: RowKind::Le });
+            let shift_sum: f64 =
+                c.indices.iter().zip(c.coeffs.iter()).map(|(&v, &a)| a * varmaps[v].shift).sum();
+            rows.push(Row {
+                lhs: mk(c.lower),
+                rhs: c.lower - shift_sum,
+                kind: RowKind::Ge,
+                // s = sum a*x - lower
+                slack_expr: Some((
+                    c.indices.iter().copied().zip(c.coeffs.iter().copied()).collect(),
+                    -c.lower,
+                )),
+            });
+            rows.push(Row {
+                lhs: mk(c.upper),
+                rhs: c.upper - shift_sum,
+                kind: RowKind::Le,
+                // s = upper - sum a*x
+                slack_expr: Some((
+                    c.indices.iter().copied().zip(c.coeffs.iter().map(|a| -a)).collect(),
+                    c.upper,
+                )),
+            });
         } else {
             let mut lhs = Vec::new();
             let mut rhs = 0.0;
@@ -204,27 +249,67 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 RowKind::Ge => c.lower,
                 RowKind::Eq => c.lower,
             };
-            rows.push(Row { lhs, rhs, kind });
+            let slack_expr = match kind {
+                // s = upper - sum a*x
+                RowKind::Le => Some((
+                    c.indices.iter().copied().zip(c.coeffs.iter().map(|a| -a)).collect(),
+                    c.upper,
+                )),
+                // s = sum a*x - lower
+                RowKind::Ge => Some((
+                    c.indices.iter().copied().zip(c.coeffs.iter().copied()).collect(),
+                    -c.lower,
+                )),
+                RowKind::Eq => None,
+            };
+            rows.push(Row { lhs, rhs, kind, slack_expr });
         }
     }
     for (yp, ym, ub) in free_ub_rows {
         let lhs = vec![(yp, 1.0), (ym, -1.0)];
-        rows.push(Row { lhs, rhs: ub, kind: RowKind::Le });
+        // The original variable j satisfies x_j = yp - ym; the row slack is
+        // s = ub - x_j.
+        let j = col_to_orig[yp].expect("free-split column maps to an original variable");
+        rows.push(Row { lhs, rhs: ub, kind: RowKind::Le, slack_expr: Some((vec![(j, -1.0)], ub)) });
     }
     // Enforce finite upper bounds on structural columns as explicit <= rows so
     // the simplex respects variable bounds (binary/integer domains, etc.).
     for (c, u) in struct_ubs.iter().enumerate() {
         if let Some(u) = u {
-            rows.push(Row { lhs: vec![(c, 1.0)], rhs: *u, kind: RowKind::Le });
+            // y_c = x_j - lb_j, so the row slack is s = u - x_j + lb_j.
+            let j = col_to_orig[c].expect("structural column maps to an original variable");
+            let lb = var_lb[j];
+            rows.push(Row {
+                lhs: vec![(c, 1.0)],
+                rhs: *u,
+                kind: RowKind::Le,
+                slack_expr: Some((vec![(j, -1.0)], u + lb)),
+            });
         }
     }
 
     // ---- 3. Assemble the tableau -------------------------------------------
     let n_struct = lp_cost.len();
+    // Normalise row orientations up front so the right-hand side is
+    // non-negative: a `<=` row with negative rhs flips into a `>=` row (and
+    // vice versa); equality rows merely negate. Slack/surplus expressions are
+    // unaffected — the flipped row's surplus equals the original row's slack.
+    // Column counts must be taken from the *normalised* kinds because flipped
+    // rows need an artificial column.
+    let norm_kinds: Vec<RowKind> = rows
+        .iter()
+        .map(|r| match r.kind {
+            RowKind::Eq => RowKind::Eq,
+            RowKind::Le if r.rhs < 0.0 => RowKind::Ge,
+            RowKind::Le => RowKind::Le,
+            RowKind::Ge if r.rhs < 0.0 => RowKind::Le,
+            RowKind::Ge => RowKind::Ge,
+        })
+        .collect();
     let mut n_slack = 0usize;
     let mut n_art = 0usize;
-    for r in &rows {
-        match r.kind {
+    for k in &norm_kinds {
+        match k {
             RowKind::Le => n_slack += 1,
             RowKind::Ge => {
                 n_slack += 1;
@@ -235,6 +320,18 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     }
     let n_cols = n_struct + n_slack + n_art;
     let mrows = rows.len();
+
+    // Assemble per-column original-space expressions: structural columns in
+    // order, then one slack/surplus expression per Le/Ge row (the order in
+    // which slack columns are allocated), then artificials (None).
+    let mut col_expr: Vec<Option<RecoverEntry>> = Vec::with_capacity(n_cols);
+    col_expr.extend(struct_exprs);
+    for r in &rows {
+        if r.kind != RowKind::Eq {
+            col_expr.push(r.slack_expr.clone());
+        }
+    }
+    col_expr.resize(n_cols, None);
 
     if mrows == 0 {
         let mut x = vec![0.0f64; n];
@@ -267,6 +364,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             var_lb: var_lb.to_vec(),
             var_ub: var_ub.to_vec(),
             recover,
+            col_expr,
             obj_constant,
             sense,
         };
@@ -280,11 +378,12 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     let mut s_cursor = n_struct;
     let mut art_cursor = n_struct + n_slack;
     for (ri, r) in rows.iter().enumerate() {
-        b[ri] = r.rhs;
+        let sign = if r.rhs < 0.0 { -1.0 } else { 1.0 };
+        b[ri] = r.rhs * sign;
         for &(col, coef) in &r.lhs {
-            a[ri][col] += coef;
+            a[ri][col] += coef * sign;
         }
-        match r.kind {
+        match norm_kinds[ri] {
             RowKind::Le => {
                 a[ri][s_cursor] = 1.0;
                 basis[ri] = s_cursor;
@@ -305,12 +404,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 art_cursor += 1;
             }
         }
-        if b[ri] < 0.0 {
-            for c in 0..n_cols {
-                a[ri][c] = -a[ri][c];
-            }
-            b[ri] = -b[ri];
-        }
     }
 
     let mut cost = vec![0.0f64; n_cols];
@@ -320,7 +413,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         }
     }
     let mut iters = 0usize;
-    if !run_simplex(&mut a, &mut b, &mut basis, &cost, &mut iters, n_cols, mrows, tol) {
+    if !run_simplex(&mut a, &mut b, &mut basis, &cost, &mut iters, n_cols, mrows, n_cols, tol) {
         sol.status = LpStatus::Infeasible;
         return finish_state(
             sol,
@@ -336,6 +429,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             var_lb,
             var_ub,
             recover,
+            col_expr,
             obj_constant,
             sense,
         );
@@ -357,9 +451,31 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 var_lb,
                 var_ub,
                 recover,
+                col_expr,
                 obj_constant,
                 sense,
             );
+        }
+    }
+
+    // Drive artificials that remain basic at zero level out of the basis so
+    // they cannot drift positive during phase II (they carry zero cost
+    // there). A row with no real column to pivot on is redundant; its
+    // artificial stays basic at zero and no entering column can change it.
+    let real_cols = n_struct + n_slack;
+    for ri in 0..mrows {
+        if art_of_row[ri] == usize::MAX || basis[ri] != art_of_row[ri] {
+            continue;
+        }
+        let mut target = usize::MAX;
+        for j in 0..real_cols {
+            if a[ri][j].abs() > 1e-9 {
+                target = j;
+                break;
+            }
+        }
+        if target != usize::MAX {
+            pivot_at(&mut a, &mut b, &mut basis, ri, target, n_cols, mrows);
         }
     }
 
@@ -367,7 +483,8 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     for j in 0..n_struct {
         cost2[j] = lp_cost[j];
     }
-    if !run_simplex(&mut a, &mut b, &mut basis, &cost2, &mut iters, n_cols, mrows, tol) {
+    // Artificial columns are barred from entering during phase II.
+    if !run_simplex(&mut a, &mut b, &mut basis, &cost2, &mut iters, n_cols, mrows, real_cols, tol) {
         sol.status = LpStatus::Unbounded;
         return finish_state(
             sol,
@@ -383,12 +500,13 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             var_lb,
             var_ub,
             recover,
+            col_expr,
             obj_constant,
             sense,
         );
     }
 
-    let row_kinds: Vec<RowKind> = rows.iter().map(|r| r.kind).collect();
+    let row_kinds: Vec<RowKind> = norm_kinds.clone();
     let (x, obj, dual, reduced_costs) = recover_solution(
         &a,
         &b,
@@ -401,6 +519,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         n_struct,
         mrows,
         &model.constraints.len(),
+        obj_constant,
     );
     sol.status = LpStatus::Optimal;
     sol.x = x;
@@ -423,6 +542,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         var_lb,
         var_ub,
         recover,
+        col_expr,
         obj_constant,
         sense,
     )
@@ -443,7 +563,8 @@ fn finish_state(
     lp_cost_raw: Vec<f64>,
     var_lb: &[f64],
     var_ub: &[f64],
-    recover: Vec<(Vec<(usize, f64)>, f64)>,
+    recover: Vec<RecoverEntry>,
+    col_expr: Vec<Option<RecoverEntry>>,
     obj_constant: f64,
     sense: Sense,
 ) -> LpState {
@@ -461,6 +582,7 @@ fn finish_state(
         var_lb: var_lb.to_vec(),
         var_ub: var_ub.to_vec(),
         recover,
+        col_expr,
         obj_constant,
         sense,
     }
@@ -479,6 +601,7 @@ fn recover_solution(
     n_struct: usize,
     mrows: usize,
     n_constraints: &usize,
+    obj_constant: f64,
 ) -> (Vec<f64>, f64, Vec<f64>, Vec<f64>) {
     let mut y = vec![0.0f64; n_struct];
     for ri in 0..mrows {
@@ -494,7 +617,10 @@ fn recover_solution(
         }
         x[j] = val;
     }
-    let mut obj = 0.0;
+    // Objective = shifted constant plus the structural-column contributions.
+    // Variables fixed at a nonzero lower bound carry their cost through
+    // `obj_constant` (their column value y = x - lb is zero).
+    let mut obj = obj_constant;
     for k in 0..n_struct {
         obj += lp_cost_raw[k] * y[k];
     }
@@ -554,8 +680,41 @@ enum RowKind {
     Eq,
 }
 
+/// Pivot the tableau on `(leaving_row, entering_col)` (normalise the row,
+/// eliminate the entering column elsewhere, update the basis).
+fn pivot_at(
+    a: &mut [Vec<f64>],
+    b: &mut [f64],
+    basis: &mut [usize],
+    leaving: usize,
+    entering: usize,
+    n_cols: usize,
+    mrows: usize,
+) {
+    let piv = a[leaving][entering];
+    for c in 0..n_cols {
+        a[leaving][c] /= piv;
+    }
+    b[leaving] /= piv;
+    for ri in 0..mrows {
+        if ri != leaving {
+            let f = a[ri][entering];
+            if f.abs() > 0.0 {
+                for c in 0..n_cols {
+                    a[ri][c] -= f * a[leaving][c];
+                }
+                b[ri] -= f * b[leaving];
+            }
+        }
+    }
+    basis[leaving] = entering;
+}
+
 /// Run the simplex loop minimising `cost`. Returns `true` on optimal/feasible
 /// basis, `false` if unbounded. Bland's rule for deterministic pivots.
+/// Only columns `j < enter_limit` may enter (`enter_limit == n_cols` allows
+/// everything; phase II passes the structural+slack count to keep artificial
+/// columns out of the basis).
 fn run_simplex(
     a: &mut [Vec<f64>],
     b: &mut [f64],
@@ -564,6 +723,7 @@ fn run_simplex(
     iters: &mut usize,
     n_cols: usize,
     mrows: usize,
+    enter_limit: usize,
     tol: Tolerances,
 ) -> bool {
     let max_iter = 20_000;
@@ -572,7 +732,7 @@ fn run_simplex(
         let w = solve_basis_transpose(a, basis, cost, mrows);
         let mut entering = usize::MAX;
         let mut best_red = -tol.feasibility;
-        for j in 0..n_cols {
+        for j in 0..enter_limit.min(n_cols) {
             let mut red = cost[j];
             for ri in 0..mrows {
                 red -= w[ri] * a[ri][j];
@@ -606,23 +766,7 @@ fn run_simplex(
         if leaving == usize::MAX {
             return false;
         }
-        let piv = a[leaving][entering];
-        for c in 0..n_cols {
-            a[leaving][c] /= piv;
-        }
-        b[leaving] /= piv;
-        for ri in 0..mrows {
-            if ri != leaving {
-                let f = a[ri][entering];
-                if f.abs() > 0.0 {
-                    for c in 0..n_cols {
-                        a[ri][c] -= f * a[leaving][c];
-                    }
-                    b[ri] -= f * b[leaving];
-                }
-            }
-        }
-        basis[leaving] = entering;
+        pivot_at(a, b, basis, leaving, entering, n_cols, mrows);
     }
     false
 }
@@ -689,6 +833,7 @@ pub fn reoptimize(state: &mut LpState, tol: Tolerances) {
         &mut iters,
         n_cols,
         mrows,
+        n_cols,
         tol,
     ) {
         state.sol.status = LpStatus::Unbounded;
@@ -717,4 +862,82 @@ pub fn reoptimize(state: &mut LpState, tol: Tolerances) {
     state.sol.x = x;
     state.sol.objective = obj;
     state.sol.iterations += iters;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_opt_core::bounds::VarBound;
+    use tpt_opt_core::model::Constraint;
+
+    fn tol() -> Tolerances {
+        Tolerances::default()
+    }
+
+    #[test]
+    fn le_row_with_negative_rhs() {
+        // maximise x0 + x1 s.t. -x0 - x1 <= -1 (i.e. x0 + x1 >= 1), binaries.
+        // The row reaches the tableau with rhs = -1 < 0 and must flip into a
+        // `>=` row without corrupting the starting basis.
+        let mut m = Model::new(2);
+        m.set_objective(Objective::maximize(vec![0, 1], vec![1.0, 1.0]));
+        m.add_constraint(Constraint::le(vec![0, 1], vec![-1.0, -1.0], -1.0));
+        m.variables[0].bound = VarBound::binary();
+        m.variables[1].bound = VarBound::binary();
+        let lb = vec![0.0, 0.0];
+        let ub = vec![1.0, 1.0];
+        let sol = solve_lp(&m, &lb, &ub, tol());
+        assert_eq!(sol.status, LpStatus::Optimal);
+        assert!((sol.objective - 2.0).abs() < 1e-6, "obj {}", sol.objective);
+    }
+
+    #[test]
+    fn ge_row_with_negative_rhs() {
+        // minimise x0 s.t. -2x0 <= -3 (i.e. x0 >= 1.5), x0 in [0, 5].
+        let mut m = Model::new(1);
+        m.set_objective(Objective::minimize(vec![0], vec![1.0]));
+        m.add_constraint(Constraint::le(vec![0], vec![-2.0], -3.0));
+        m.variables[0].bound = VarBound::continuous(0.0, 5.0);
+        let lb = vec![0.0];
+        let ub = vec![5.0];
+        let sol = solve_lp(&m, &lb, &ub, tol());
+        assert_eq!(sol.status, LpStatus::Optimal);
+        assert!((sol.objective - 1.5).abs() < 1e-6, "obj {}", sol.objective);
+    }
+
+    #[test]
+    fn mixed_sign_rows_stay_feasible() {
+        // A model mixing positive- and negative-rhs rows of both kinds.
+        let mut m = Model::new(3);
+        m.set_objective(Objective::maximize(vec![0, 1, 2], vec![4.0, 3.0, 2.0]));
+        m.add_constraint(Constraint::le(vec![0, 1, 2], vec![2.0, 3.0, 1.0], 5.0));
+        m.add_constraint(Constraint::le(vec![0, 1, 2], vec![-1.0, -1.0, -1.0], -1.0));
+        m.add_constraint(Constraint::ge(vec![0, 1, 2], vec![-1.0, -2.0, -1.0], -3.0));
+        for v in m.variables.iter_mut() {
+            v.bound = VarBound::binary();
+        }
+        let lb = vec![0.0, 0.0, 0.0];
+        let ub = vec![1.0, 1.0, 1.0];
+        let sol = solve_lp(&m, &lb, &ub, tol());
+        assert_eq!(sol.status, LpStatus::Optimal);
+        // The recovered point must be feasible and its objective consistent.
+        for c in &m.constraints {
+            assert!(c.is_satisfied(&sol.x, 1e-6), "row violated at {:?}", sol.x);
+        }
+        assert!(
+            (sol.objective - m.objective.eval(&sol.x)).abs() < 1e-6,
+            "obj {} != eval {}",
+            sol.objective,
+            m.objective.eval(&sol.x)
+        );
+        // Brute-force integer optimum: the LP bound must dominate it.
+        let mut best = f64::NEG_INFINITY;
+        for mask in 0..8u32 {
+            let x: Vec<f64> = (0..3).map(|i| ((mask >> i) & 1) as f64).collect();
+            if m.constraints.iter().all(|c| c.is_satisfied(&x, 1e-9)) {
+                best = best.max(m.objective.eval(&x));
+            }
+        }
+        assert!(sol.objective >= best - 1e-6, "lp {} < brute {best}", sol.objective);
+    }
 }

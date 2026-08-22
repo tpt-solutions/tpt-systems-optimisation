@@ -29,10 +29,7 @@ pub struct CpModel {
 impl CpModel {
     /// Create an empty model.
     pub fn new() -> Self {
-        Self {
-            domains: Vec::new(),
-            constraints: Vec::new(),
-        }
+        Self { domains: Vec::new(), constraints: Vec::new() }
     }
 
     /// Add an integer variable over `[lo, hi]`; returns its index.

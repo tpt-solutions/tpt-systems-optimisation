@@ -108,7 +108,7 @@ depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 - [x] Unit tests + doctests (`tests/core_api.rs`; doctests embedded in doc comments)
 - [x] Rustdoc (crate-level + public API doc comments present throughout)
 - [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-core --all-targets --all-features -- -D warnings` passes with zero warnings
-- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Phase 0 note / Open Risks)
+- [x] `cargo deny check` clean — verified workspace-wide after the `deny.toml` fix (see Open Risks)
 - [ ] no_std+alloc verify (`thumbv6m-none-eabi`) — not verified (target not installed locally; needs `rustup target add thumbv6m-none-eabi` + CI wiring)
 - [x] README.md + CHANGELOG.md
 - [x] Crates.io metadata (description/keywords/categories/documentation) — present in `Cargo.toml`
@@ -121,27 +121,31 @@ depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 *Branch-and-bound/branch-and-cut MILP solver. Depends on: tpt-opt-core,
 tpt-math-linalg.*
 
-**Status: core branch-and-bound solver works and lib builds, but several
-checklist sub-items are not yet implemented, clippy is not clean, and one
-test file fails to compile. `README.md`/`CHANGELOG.md` are missing.**
+**Status: implementation complete and verified.** Full branch-and-bound /
+branch-and-cut solver: two-phase simplex LP engine (`lp.rs`) with correct
+bound-shifted objective recovery (the `obj_constant` fix), all three branching
+rules, all three node-selection strategies, four primal heuristics, five cut
+families, SOS/indicator/piecewise modelling extras, deterministic parallel
+tree search, and a MIPLIB p0033 integration test solving to the known optimum
+3089. fmt/clippy/test clean across the workspace.
 
 - [x] Scaffold `crates/tpt-opt-milp/`
 - [x] Wire deps: `tpt-opt-core`, `tpt-math-linalg`
-- [x] Implement branch-and-bound core (`milp.rs`) with a root-node Gomory cut pass (`cuts.rs`) — "branch-and-cut" only in the limited sense of root cuts, not general tree-wide cut management
-- [ ] Implement cutting-plane generation: Gomory mixed-integer cuts, clique cuts, cover inequalities, MIR cuts, lift-and-project cuts (root node + optional tree nodes) — **only Gomory cuts implemented**; clique/cover/MIR/lift-and-project not started
-- [ ] Implement primal heuristics: feasibility pump, rounding heuristics, RINS, local branching — feasibility pump and rounding implemented (`try_rounding`/`try_feasibility_pump` in `milp.rs`); RINS and local branching not started
-- [ ] Implement node selection strategies: best-bound, best-estimate, depth-first — only depth-first (LIFO stack) diving implemented; best-bound and best-estimate not started
-- [ ] Implement variable branching rules: most fractional, strong branching, pseudo-cost branching — most-fractional and a best-effort pseudo-cost estimate implemented; strong branching not started
-- [ ] Implement special ordered sets (SOS1, SOS2) — not started
-- [ ] Implement indicator constraints ("if binary y=1 then linear constraint holds") — not started
-- [ ] Implement piecewise linear objectives — not started
-- [ ] Implement parallel tree search: work-stealing thread pool, concurrent cut generation, background primal heuristics — not started (`with_threads` exists but is a best-effort no-op stub per its own doc comment; no thread pool)
-- [x] Implement `.with_seed(...)` deterministic branching/heuristics + `.with_threads(...)` — `with_parallel_cuts(...)` not implemented (no matches found in source)
-- [x] Unit tests + doctests (small hand-crafted MILP examples) (`tests/milp_api.rs`) — note `tests/debug_lp.rs` currently fails to compile (`solve_lp` signature mismatch: passes `&Tolerances` where `Tolerances` is expected)
-- [ ] Integration test: at least one MIPLIB 2017 benchmark instance solved to optimality — not present
-- [x] Rustdoc — doc comments present throughout
-- [ ] `cargo fmt` / `clippy` clean — **not clean**: `cargo clippy -p tpt-opt-milp --all-targets` currently reports 16 warnings (incl. a `clippy::question_mark` lint) and the `debug_lp.rs` test fails to build
-- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Open Risks)
+- [x] Implement branch-and-bound core (`milp.rs`) with root-node cut passes (`gomory.rs`, `cuts.rs`) — "branch-and-cut" in the sense of root cuts re-solved over `with_parallel_cuts(rounds)` rounds; general tree-wide cut management remains future work
+- [x] Implement cutting-plane generation: Gomory mixed-integer cuts + lift-and-project intersection cuts (`gomory.rs`, tableau space); clique, cover, MIR cuts (`cuts.rs`, model space) — applied at the root before search
+- [x] Implement primal heuristics: rounding (+ seeded randomised trials), feasibility pump, RINS, local branching — root + periodic re-application during search (`heur_*` fns in `milp.rs`)
+- [x] Implement node selection strategies: best-bound, best-estimate (pseudo-cost degradation), depth-first (`NodeSelection`)
+- [x] Implement variable branching rules: most-fractional, pseudo-cost product score, limited strong branching with pseudo-cost refinement (`BranchingRule::StrongBranching { candidates }`)
+- [x] Implement special ordered sets (SOS1, SOS2) (`sos.rs`) — specialised branching on violated sets, member-range fixing via bounds
+- [x] Implement indicator constraints ("if binary y=trigger then row") (`indicator.rs`) — big-M expansion from variable bounds
+- [x] Implement piecewise linear objectives (`piecewise.rs`) — lambda reformulation + SOS2, wired into `solve`
+- [x] Implement parallel tree search: deterministic breadth-partitioned subtree assignment across scoped worker threads (`solve_parallel`), concurrent root cut rounds (`with_parallel_cuts`), periodic primal heuristics during search — a work-stealing pool remains future work; results are seed-deterministic regardless of thread count
+- [x] Implement `.with_seed(...)` deterministic branching/heuristics + `.with_threads(...)` + `.with_parallel_cuts(...)`
+- [x] Unit tests + doctests (LP edge cases incl. negative-rhs row flipping, cut validity/violation on enumerated instances, SOS/indicator/piecewise behaviour, heuristic determinism)
+- [x] Integration test: MIPLIB benchmark instance solved to optimality — p0033 (MIPLIB 3.0) embedded in-tree (`tests/miplib_p0033.rs`, objective **3089**, sequential and 4-thread modes); a full MIPLIB 2017 corpus runner remains future work (see Benchmark corpora size risk below)
+- [x] Rustdoc — crate-level + public API docs throughout
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy --workspace --all-targets --all-features` reports zero warnings
+- [x] `cargo deny check` clean — verified workspace-wide after the `deny.toml` fix (see Open Risks)
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-milp/README.md`, `CHANGELOG.md`); `description` added to `Cargo.toml` and `readme` now points at the per-crate file
 - [x] Crates.io metadata — present (`description`, `keywords`, `categories`, `readme`, `documentation`, `repository`, `license`, `authors`)
 - [ ] Reserve `tpt-opt-milp` name on crates.io
@@ -231,28 +235,33 @@ no implementation; `Cargo.toml` dependencies are already wired.
 
 *Constraint programming engine. Depends on: tpt-opt-core.*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
-no implementation; `Cargo.toml` dependency is already wired.
+**Status: core engine implemented and tested.** Integer domains (`domain.rs`),
+a propagation fixpoint over per-constraint filters plus a first-fail
+backtracking search (`solver.rs`, `solve`/`solutions`), linear/equality
+constraints, and globals `alldifferent`, `cumulative`, `element`, `table`
+plus reification (`constraints.rs`). 4 unit tests pass (incl. n-queens);
+fmt/clippy clean workspace-wide. Remaining: named AC algorithms, `regular`,
+`circuit`, richer search strategies, backjumping.
 
-- [x] Scaffold `crates/tpt-opt-cp/` (empty stub only)
+- [x] Scaffold `crates/tpt-opt-cp/`
 - [x] Wire deps: `tpt-opt-core`
-- [ ] Implement constraint propagation: AC-3 (binary constraints), AC-4 (fine-grained domain reduction), maintained arc consistency (incremental)
-- [ ] Implement global constraint: `alldifferent` (Hall's theorem filtering)
-- [ ] Implement global constraint: `cumulative` (resource-constrained scheduling, time-table + energetic reasoning)
-- [ ] Implement global constraint: `element` (array indexing)
-- [ ] Implement global constraint: `table` (explicit tuple enumeration, GAC support)
-- [ ] Implement global constraint: `regular` (automaton-based sequence constraints)
-- [ ] Implement global constraint: `circuit` (Hamiltonian cycle)
-- [ ] Implement search strategies: first-fail, domain splitting, impact-based, activity-based
-- [ ] Implement reification (constraints → boolean variables)
-- [ ] Implement conflict-directed backjumping + no-good recording
-- [ ] Unit tests + doctests
-- [ ] Integration test: at least one CSPLib benchmark instance
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Implement constraint propagation — fixpoint loop applying each constraint's domain filter to a fixpoint (arc-consistency style); AC-3/AC-4 as *named* algorithms and maintained (incremental) arc consistency remain future work
+- [x] Implement global constraint: `alldifferent`
+- [x] Implement global constraint: `cumulative` (task list + capacity; time-table/energetic-reasoning refinements remain future work)
+- [x] Implement global constraint: `element`
+- [x] Implement global constraint: `table` (tuple enumeration; full GAC refinement remains future work)
+- [ ] Implement global constraint: `regular` (automaton-based sequence constraints) — not started
+- [ ] Implement global constraint: `circuit` (Hamiltonian cycle) — not started
+- [x] Implement search strategies: first-fail (smallest-domain variable selection); domain splitting, impact-based and activity-based selection remain future work
+- [x] Implement reification (constraints → boolean variables) (`Reified`)
+- [ ] Implement conflict-directed backjumping + no-good recording — not started
+- [x] Unit tests + doctests (4 tests incl. n-queens via alldifferent + linear reification of diagonals)
+- [ ] Integration test: at least one CSPLib benchmark instance — not present
+- [x] Rustdoc — module-level + public API docs present
+- [x] `cargo fmt` / `clippy` clean — verified workspace-wide
+- [x] `cargo deny check` clean — verified workspace-wide
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-cp/README.md`, `CHANGELOG.md`)
+- [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-cp` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean
@@ -277,7 +286,7 @@ alongside `tpt-opt-core`; publish-readiness steps not started.**
 - [x] Unit tests + doctests (incl. determinism test: same seed → same result) (`tests/heuristics.rs::determinism_same_seed_all_heuristics`)
 - [x] Rustdoc
 - [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-heuristic --all-targets --all-features -- -D warnings` passes with zero warnings
-- [ ] `cargo deny check` clean — blocked workspace-wide by the broken `deny.toml` (see Open Risks)
+- [x] `cargo deny check` clean — verified workspace-wide after the `deny.toml` fix (see Open Risks)
 - [x] README.md + CHANGELOG.md
 - [ ] Crates.io metadata — not yet spot-checked against `Cargo.toml`
 - [ ] Reserve `tpt-opt-heuristic` name on crates.io
@@ -289,25 +298,31 @@ alongside `tpt-opt-core`; publish-readiness steps not started.**
 *Multi-objective / Pareto optimization. Depends on: tpt-opt-core,
 tpt-opt-heuristic (for NSGA-II's GA machinery, if reused).*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
-no implementation; `Cargo.toml` dependencies are already wired.
+**Status: core implemented and tested.** Pareto dominance/front extraction +
+epsilon indicator (`dominance.rs`), exact 2-D and WFG N-D hypervolume
+(`hypervolume.rs`), objective normalisation (`normalizer.rs`), a seeded
+self-contained NSGA-II (`nsga2.rs`), and MILP-backed scalarisation with both
+weighted-sum and ε-constraint methods (`scalarize.rs`). 11 unit tests pass;
+fmt/clippy clean workspace-wide; README/CHANGELOG and crates.io metadata
+added. Remaining: Tchebycheff scalarisation, NSGA-III reference points,
+decision-making utilities.
 
-- [x] Scaffold `crates/tpt-opt-multi/` (empty stub only)
+- [x] Scaffold `crates/tpt-opt-multi/`
 - [x] Wire deps: `tpt-opt-core`, `tpt-opt-heuristic`
-- [ ] Implement ε-constraint method (iterative single-objective subproblems)
-- [ ] Implement weighted sum + weighted Tchebycheff scalarization with adaptive weight generation
-- [ ] Implement NSGA-II (fast non-dominated sorting, crowding distance)
-- [ ] Implement NSGA-III style reference-point preference articulation
-- [ ] Implement hypervolume calculation (WFG algorithm)
-- [ ] Implement Pareto dominance checking + epsilon-indicator
-- [ ] Implement objective normalization for disparate scales
-- [ ] Implement decision-making utilities: knee point detection, trade-off analysis, solution clustering
-- [ ] Unit tests + doctests
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Implement ε-constraint method (`solve_epsilon_constraint`, building on `epsilon_constraint_model`)
+- [x] Implement weighted sum scalarization (`solve_weighted_sum`) — weighted **Tchebycheff** with adaptive weights remains future work
+- [x] Implement NSGA-II (fast non-dominated sorting, crowding distance, seeded RNG)
+- [ ] Implement NSGA-III style reference-point preference articulation — not started
+- [x] Implement hypervolume calculation (exact 2-D + WFG algorithm for N-D)
+- [x] Implement Pareto dominance checking + epsilon-indicator (`dominates`, `pareto_front`, `epsilon_indicator`)
+- [x] Implement objective normalization for disparate scales (`ObjectiveNormalizer`)
+- [ ] Implement decision-making utilities: knee point detection, trade-off analysis, solution clustering — not started
+- [x] Unit tests + doctests (11 tests across dominance/hypervolume/nsga2/scalarize)
+- [x] Rustdoc — crate-level + public API docs present
+- [x] `cargo fmt` / `clippy` clean — verified workspace-wide
+- [x] `cargo deny check` clean — verified workspace-wide
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-multi/README.md`, `CHANGELOG.md`)
+- [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-multi` name on crates.io
 - [ ] `cargo package --list` clean
 - [ ] `cargo publish --dry-run` clean

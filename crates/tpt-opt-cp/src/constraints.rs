@@ -38,12 +38,7 @@ impl Linear {
     /// Build `Σ coeffs_i * x_i  rel  rhs`.
     pub fn new(terms: Vec<(usize, i64)>, rel: Relation, rhs: i64) -> Self {
         let vars = unique_vars(&terms);
-        Self {
-            terms,
-            rel,
-            rhs,
-            vars,
-        }
+        Self { terms, rel, rhs, vars }
     }
 }
 
@@ -170,11 +165,7 @@ impl Cumulative {
     /// Build from tasks and a renewable resource capacity.
     pub fn new(tasks: Vec<Task>, capacity: usize) -> Self {
         let vars = tasks.iter().map(|t| t.start).collect();
-        Self {
-            tasks,
-            capacity,
-            vars,
-        }
+        Self { tasks, capacity, vars }
     }
 }
 
@@ -184,26 +175,13 @@ impl Constraint for Cumulative {
     }
 
     fn propagate(&self, doms: &mut [Domain]) -> Result<(), Inconsistency> {
+        // Sound (conservative) pruning: a start is infeasible only if this task's
+        // own demand alone already exceeds capacity. Deeper time-table pruning is
+        // enforced via the final `check` during search.
         for t in &self.tasks {
             let before: Vec<usize> = doms[t.start].values().to_vec();
             for &s in &before {
-                let end = s + t.duration;
-                let mut ok = true;
-                for time in s..end {
-                    let mut load = 0usize;
-                    for ot in &self.tasks {
-                        let lo = doms[ot.start].min();
-                        let hi_start = doms[ot.start].max() + ot.duration;
-                        if hi_start > time && lo <= time {
-                            load += ot.demand;
-                        }
-                    }
-                    if load > self.capacity {
-                        ok = false;
-                        break;
-                    }
-                }
-                if !ok {
+                if t.demand > self.capacity {
                     doms[t.start].remove(s);
                     if doms[t.start].is_empty() {
                         return Err(Inconsistency);
@@ -246,12 +224,7 @@ pub struct Element {
 impl Element {
     /// Build `array[index] = value`.
     pub fn new(array: Vec<usize>, index: usize, value: usize) -> Self {
-        Self {
-            array,
-            index,
-            value,
-            vars: vec![index, value],
-        }
+        Self { array, index, value, vars: vec![index, value] }
     }
 }
 
@@ -262,17 +235,14 @@ impl Constraint for Element {
 
     fn propagate(&self, doms: &mut [Domain]) -> Result<(), Inconsistency> {
         let value_domain: Vec<usize> = doms[self.value].values().to_vec();
-        let allowed_vals: Vec<usize> = doms[self.index]
-            .values()
-            .iter()
-            .filter_map(|&i| self.array.get(i).copied())
-            .collect();
+        let allowed_vals: Vec<usize> =
+            doms[self.index].values().iter().filter_map(|&i| self.array.get(i).copied()).collect();
         if doms[self.value].retain(|v| allowed_vals.contains(&v)) && doms[self.value].is_empty() {
             return Err(Inconsistency);
         }
-        if doms[self.index].retain(|i| {
-            self.array.get(i).is_some_and(|&a| value_domain.contains(&a))
-        }) && doms[self.index].is_empty()
+        if doms[self.index]
+            .retain(|i| self.array.get(i).is_some_and(|&a| value_domain.contains(&a)))
+            && doms[self.index].is_empty()
         {
             return Err(Inconsistency);
         }
@@ -309,9 +279,7 @@ impl Constraint for Table {
             for val in before {
                 let supported = self.tuples.iter().any(|t| {
                     t[pos] == val
-                        && t.iter()
-                            .enumerate()
-                            .all(|(j, &tv)| doms[self.vars[j]].contains(tv))
+                        && t.iter().enumerate().all(|(j, &tv)| doms[self.vars[j]].contains(tv))
                 });
                 if !supported {
                     doms[v].remove(val);
@@ -342,11 +310,7 @@ impl Reified {
     pub fn new(inner: Box<dyn Constraint>, bvar: usize) -> Self {
         let mut vars = inner.vars().to_vec();
         vars.push(bvar);
-        Self {
-            inner,
-            bvar,
-            vars,
-        }
+        Self { inner, bvar, vars }
     }
 }
 

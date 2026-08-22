@@ -79,9 +79,7 @@ fn collect(
     if doms.iter().all(|d| d.is_singleton()) {
         let assign: Vec<usize> = doms.iter().map(|d| d.value()).collect();
         if cons.iter().all(|c| c.check(&assign)) {
-            out.push(CpSolution {
-                assignment: assign,
-            });
+            out.push(CpSolution { assignment: assign });
         }
         return;
     }

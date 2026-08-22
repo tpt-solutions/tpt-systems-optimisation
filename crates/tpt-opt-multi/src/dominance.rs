@@ -65,12 +65,7 @@ mod tests {
     #[test]
     fn front_of_triangle() {
         // Minimise (x, y) s.t. x + y <= 1, x,y in [0,1]: the front is the segment.
-        let pts = vec![
-            vec![0.0, 1.0],
-            vec![0.5, 0.5],
-            vec![1.0, 0.0],
-            vec![0.7, 0.7],
-        ];
+        let pts = vec![vec![0.0, 1.0], vec![0.5, 0.5], vec![1.0, 0.0], vec![0.7, 0.7]];
         let mut f = pareto_front(&pts);
         f.sort_unstable();
         assert_eq!(f, vec![0, 1, 2]);

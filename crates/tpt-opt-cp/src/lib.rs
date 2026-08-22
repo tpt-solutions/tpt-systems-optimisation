@@ -10,7 +10,7 @@ pub mod solver;
 mod tests {
     use crate::constraints::{AllDifferent, Cumulative, Element, Linear, Task};
     use crate::model::{CpModel, Relation};
-    use crate::solver::{solve, solutions};
+    use crate::solver::{solutions, solve};
 
     #[test]
     fn n_queens_4() {
@@ -24,16 +24,17 @@ mod tests {
         let mut diag2 = Vec::new();
         for (row, &c) in cols.iter().enumerate() {
             let d1 = m.add_var(0, 2 * n);
+            // d1 = c_i - i + n  (offset keeps the auxiliary non-negative).
             m.add_constraint(Box::new(Linear::new(
                 vec![(c, 1), (d1, -1)],
                 Relation::Eq,
-                row as i64,
+                (row as i64) - (n as i64),
             )));
             let d2 = m.add_var(0, 2 * n);
             m.add_constraint(Box::new(Linear::new(
                 vec![(c, 1), (d2, -1)],
                 Relation::Eq,
-                (row as i64) - (n as i64),
+                -(row as i64),
             )));
             diag1.push(d1);
             diag2.push(d2);
@@ -59,16 +60,8 @@ mod tests {
         let s0 = m.add_var(0, 5);
         let s1 = m.add_var(0, 5);
         let tasks = vec![
-            Task {
-                start: s0,
-                duration: 2,
-                demand: 3,
-            },
-            Task {
-                start: s1,
-                duration: 2,
-                demand: 3,
-            },
+            Task { start: s0, duration: 2, demand: 3 },
+            Task { start: s1, duration: 2, demand: 3 },
         ];
         m.add_constraint(Box::new(Cumulative::new(tasks, 3)));
         let sol = solve(&m).expect("feasible");

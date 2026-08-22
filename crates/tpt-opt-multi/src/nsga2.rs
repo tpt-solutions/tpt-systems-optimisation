@@ -50,7 +50,7 @@ struct Individual {
     crowding: f64,
 }
 
-    /// NSGA-II optimiser over continuous decision vectors.
+/// NSGA-II optimiser over continuous decision vectors.
 pub struct Nsga2 {
     bounds: Vec<(f64, f64)>,
     #[allow(clippy::type_complexity)]
@@ -65,11 +65,7 @@ impl Nsga2 {
     where
         F: Fn(&[f64]) -> Vec<f64> + 'static,
     {
-        Self {
-            bounds,
-            objective: Box::new(objective),
-            config: Nsga2Config::default(),
-        }
+        Self { bounds, objective: Box::new(objective), config: Nsga2Config::default() }
     }
 
     /// Override the configuration.
@@ -93,18 +89,9 @@ impl Nsga2 {
 
         let mut individuals: Vec<Individual> = (0..pop)
             .map(|_| {
-                let x: Vec<f64> = self
-                    .bounds
-                    .iter()
-                    .map(|&(lo, hi)| rng.range(lo, hi))
-                    .collect();
+                let x: Vec<f64> = self.bounds.iter().map(|&(lo, hi)| rng.range(lo, hi)).collect();
                 let f = (self.objective)(&x);
-                Individual {
-                    x,
-                    f,
-                    rank: 0,
-                    crowding: 0.0,
-                }
+                Individual { x, f, rank: 0, crowding: 0.0 }
             })
             .collect();
 
@@ -122,20 +109,14 @@ impl Nsga2 {
             individuals = self.select_next(&combined, pop);
         }
 
-        individuals
-            .into_iter()
-            .map(|ind| (ind.x, ind.f))
-            .collect()
+        individuals.into_iter().map(|ind| (ind.x, ind.f)).collect()
     }
 
     /// Return only the non-dominated (Pareto) solutions from the final population.
     pub fn pareto_front(&self) -> Vec<(Vec<f64>, Vec<f64>)> {
         let all = self.solve();
         let objs: Vec<Vec<f64>> = all.iter().map(|(_, f)| f.clone()).collect();
-        crate::dominance::pareto_front(&objs)
-            .into_iter()
-            .map(|i| all[i].clone())
-            .collect()
+        crate::dominance::pareto_front(&objs).into_iter().map(|i| all[i].clone()).collect()
     }
 
     fn make_offspring(&self, pop: &[Individual], rng: &mut Xoshiro256) -> Vec<Individual> {
@@ -150,19 +131,9 @@ impl Nsga2 {
             };
             self.mutate(&mut c1, rng);
             self.mutate(&mut c2, rng);
-            children.push(Individual {
-                x: c1,
-                f: Vec::new(),
-                rank: 0,
-                crowding: 0.0,
-            });
+            children.push(Individual { x: c1, f: Vec::new(), rank: 0, crowding: 0.0 });
             if children.len() < pop.len() {
-                children.push(Individual {
-                    x: c2,
-                    f: Vec::new(),
-                    rank: 0,
-                    crowding: 0.0,
-                });
+                children.push(Individual { x: c2, f: Vec::new(), rank: 0, crowding: 0.0 });
             }
         }
         children
@@ -197,10 +168,8 @@ impl Nsga2 {
                 (1.0 / (2.0 * (1.0 - r))).powf(1.0 / (eta + 1.0))
             };
             let _ = beta;
-            let (new_u, new_v) = (
-                0.5 * ((u + v) - beta_q * (u - v)),
-                0.5 * ((u + v) + beta_q * (u - v)),
-            );
+            let (new_u, new_v) =
+                (0.5 * ((u + v) - beta_q * (u - v)), 0.5 * ((u + v) + beta_q * (u - v)));
             c1[i] = new_u.clamp(lo, hi);
             c2[i] = new_v.clamp(lo, hi);
         }
@@ -280,9 +249,7 @@ impl Nsga2 {
         for k in 0..m {
             let mut order: Vec<usize> = front.to_vec();
             order.sort_by(|&a, &b| {
-                pop[a].f[k]
-                    .partial_cmp(&pop[b].f[k])
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                pop[a].f[k].partial_cmp(&pop[b].f[k]).unwrap_or(std::cmp::Ordering::Equal)
             });
             pop[order[0]].crowding = f64::INFINITY;
             pop[*order.last().unwrap()].crowding = f64::INFINITY;

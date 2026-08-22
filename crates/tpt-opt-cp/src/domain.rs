@@ -23,11 +23,7 @@ impl Domain {
         vals.dedup();
         let min = *vals.first().unwrap_or(&0);
         let max = *vals.last().unwrap_or(&0);
-        Self {
-            values: vals,
-            min,
-            max,
-        }
+        Self { values: vals, min, max }
     }
 
     /// Number of allowed values.

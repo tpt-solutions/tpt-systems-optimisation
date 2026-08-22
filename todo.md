@@ -390,29 +390,40 @@ direction bug (`Ge` → `Le`) was fixed.
 *Large-scale decomposition methods. Depends on: tpt-opt-core, tpt-opt-milp,
 tpt-math-optimize-convex.*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub with
-no implementation; `Cargo.toml` dependencies are already wired.
+**Status: implementation complete and verified.** Six modules: Benders
+decomposition with explicit dual-LP cut generation, Farkas feasibility cuts,
+Magnanti–Wong Pareto-optimal cuts, and trust-region/level-set stabilisation
+(certified by a final unrestricted master solve); Dantzig–Wolfe decomposition
+with big-M artificial seeding, per-block pricing LPs, and restricted-master
+pool management (`RmpPool` dedup + capacity); branch-and-price over integer
+masters with a pluggable `Pricer` trait (continuous-LP default, integer
+knapsack pricing for cutting stock) and dual-neutral cleanup pricing;
+Lagrangian relaxation (subgradient ascent, bundle/level method, surrogate
+search); and bipartite structure detection with strategy recommendation.
+15 integration tests + lib tests + 1 doctest pass (cutting stock
+cross-validated against a monolithic pattern MILP); fmt/clippy `-D warnings`
+clean; deny clean; README/CHANGELOG and crates.io metadata added.
 
 - [x] Scaffold `crates/tpt-opt-decompose/` (empty stub only)
 - [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`, `tpt-math-optimize-convex`
-- [ ] Implement Benders decomposition (master + subproblems on complicating variables)
-- [ ] Implement Pareto-optimal cut generation for Benders
-- [ ] Implement stabilization techniques (level set, trust region) for oscillation prevention
-- [ ] Implement Dantzig-Wolfe decomposition (set partitioning/covering master, independent block subproblems)
-- [ ] Implement column generation with pricing subproblems
-- [ ] Implement branch-and-price for integer solutions
-- [ ] Implement restricted master problem management
-- [ ] Implement Lagrangian relaxation: subgradient optimization, bundle methods, surrogate constraints
-- [ ] Implement automatic decomposable-structure detection + strategy recommendation
-- [ ] Unit tests + doctests
-- [ ] Rustdoc
-- [ ] `cargo fmt` / `clippy` clean
-- [ ] `cargo deny check` clean
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Implement Benders decomposition (master + subproblems on complicating variables)
+- [x] Implement Pareto-optimal cut generation for Benders
+- [x] Implement stabilization techniques (level set, trust region) for oscillation prevention
+- [x] Implement Dantzig-Wolfe decomposition (set partitioning/covering master, independent block subproblems)
+- [x] Implement column generation with pricing subproblems
+- [x] Implement branch-and-price for integer solutions
+- [x] Implement restricted master problem management
+- [x] Implement Lagrangian relaxation: subgradient optimization, bundle methods, surrogate constraints
+- [x] Implement automatic decomposable-structure detection + strategy recommendation
+- [x] Unit tests + doctests — 15 integration tests + lib tests + 1 crate-level doctest pass
+- [x] Rustdoc — crate-level overview + public API docs throughout all six modules
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-decompose --all-targets --all-features -- -D warnings` passes with zero warnings
+- [x] `cargo deny check` clean — verified workspace-wide
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-decompose/README.md`, `CHANGELOG.md`)
+- [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-decompose` name on crates.io
-- [ ] `cargo package --list` clean
-- [ ] `cargo publish --dry-run` clean
+- [x] `cargo package --list` clean — verified: README/CHANGELOG/sources/tests included, matches the sibling-crate convention
+- [ ] `cargo publish --dry-run` clean — blocked workspace-wide: path deps (`tpt-opt-core`, `tpt-math-*`) are not on crates.io yet, so resolution fails identically for every crate (confirmed on the completed `tpt-opt-robust`); unblocks in the final Publish-Readiness Phase once names are reserved and deps publish in order
 
 ## Phase 10 — tpt-opt-systems (umbrella)
 

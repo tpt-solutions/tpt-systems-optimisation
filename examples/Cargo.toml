@@ -1,0 +1,13 @@
+# Runnable cross-crate examples. This directory is EXCLUDED from the main
+# workspace (`exclude = ["examples"]` in the root Cargo.toml) so its
+# all-features dependency does not affect workspace feature resolution or
+# packaging. Run with: cargo run --manifest-path examples/Cargo.toml --example <name>
+
+[package]
+name = "tpt-opt-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tpt-opt-systems = { path = "../crates/tpt-opt-systems", features = ["all-solvers"] }

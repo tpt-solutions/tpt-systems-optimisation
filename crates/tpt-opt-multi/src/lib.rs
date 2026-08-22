@@ -6,7 +6,7 @@
 //!   ([`dominance`]).
 //! - Objective normalisation for disparate scales ([`normalizer`]).
 //! - Hypervolume computation (exact 2-D and the WFG algorithm for N-D)
-//!   ([`hypervolume`]).
+//!   ([`hypervolume()`]).
 //! - [`nsga2`] — a self-contained NSGA-II evolutionary multi-objective solver.
 //! - [`nsga3`] — NSGA-III with Das–Dennis reference directions and niching
 //!   selection for many-objective / preference-articulated search.

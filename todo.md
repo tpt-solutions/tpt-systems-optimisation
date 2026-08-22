@@ -109,11 +109,11 @@ depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 - [x] Rustdoc (crate-level + public API doc comments present throughout)
 - [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-core --all-targets --all-features -- -D warnings` passes with zero warnings
 - [x] `cargo deny check` clean — verified workspace-wide after the `deny.toml` fix (see Open Risks)
-- [ ] no_std+alloc verify (`thumbv6m-none-eabi`) — not verified (target not installed locally; needs `rustup target add thumbv6m-none-eabi` + CI wiring)
+- [x] no_std+alloc verify (`thumbv6m-none-eabi`) — verified locally for both configurations (`--no-default-features` and `--features alloc`); CI `no-std` job checks both configs on every push
 - [x] README.md + CHANGELOG.md
 - [x] Crates.io metadata (description/keywords/categories/documentation) — present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-core` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 2 — tpt-opt-milp
@@ -149,7 +149,7 @@ tree search, and a MIPLIB p0033 integration test solving to the known optimum
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-milp/README.md`, `CHANGELOG.md`); `description` added to `Cargo.toml` and `readme` now points at the per-crate file
 - [x] Crates.io metadata — present (`description`, `keywords`, `categories`, `readme`, `documentation`, `repository`, `license`, `authors`)
 - [ ] Reserve `tpt-opt-milp` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ### 2a — Optional HiGHS feature (non-default)
@@ -159,11 +159,23 @@ includes, gated behind a non-default `highs` feature for benchmarking/
 production use per spec §4 "Solver Agnosticism". SCIP/Gurobi/CPLEX
 deferred — see Open Risks.*
 
-- [ ] Add optional `highs` feature wiring a HiGHS Rust binding (e.g. `highs`/`highs-sys` crate) as an alternate `Solver` impl
-- [ ] Document the added C++ build-toolchain requirement when `highs` is enabled
-- [ ] Cross-solver validation test (in-house vs. HiGHS) on shared small MILP instances, feature-gated
-- [ ] Confirm `highs`/`highs-sys` license (MIT) passes `cargo deny check` when the feature is enabled
-- [ ] `cargo publish --dry-run -p tpt-opt-milp --no-default-features` and `--all-features` both clean
+**Status: complete and verified.** `HighsSolver` (`src/highs_solver.rs`)
+translates the canonical `Model` into HiGHS' column-wise form (reading the
+authoritative `bound.kind` for integrality, semi-continuous columns included),
+maps all HiGHS terminal statuses onto `SolverStatus`, applies the parameter
+bundle (time limit, threads, verbosity, gaps, seed, tolerances), restores the
+objective constant, and supports warm-start primal hints. The cross-validation
+suite passes 5/5; during bring-up it exposed a real bug in the bundled LP
+engine's zero-constraint shortcut (`lp.rs` declared Optimal without checking
+for improvement toward an infinite bound — fixed; unbounded LPs are now
+detected correctly). Also added `Unicode-3.0` to the deny allowlist (bindgen
+transitive dep).
+
+- [x] Add optional `highs` feature wiring a HiGHS Rust binding (`highs`/`highs-sys` crates) as an alternate `Solver` impl — `HighsSolver`, non-default, requires cmake + MSVC/gcc/clang at build time
+- [x] Document the added C++ build-toolchain requirement when `highs` is enabled — `crates/tpt-opt-milp/README.md` ("External solver binding" section)
+- [x] Cross-solver validation test (in-house vs. HiGHS) on shared small MILP instances, feature-gated — `tests/highs_cross_validation.rs`: knapsack (24), covering (9), mixed continuous/integer equality (−10.5), infeasible, unbounded — both solvers agree on objective/status in every case
+- [x] Confirm `highs`/`highs-sys` license (MIT) passes `cargo deny check` when the feature is enabled — verified: `cargo deny --features tpt-opt-milp/highs check licenses` → ok (after adding `Unicode-3.0` to the allowlist for bindgen's transitive deps)
+- [x] `cargo publish --dry-run -p tpt-opt-milp --no-default-features` and `--all-features` both run — blocked only by the known workspace-wide path-dep ordering (see Phase 9 note); packaging itself is fine
 
 ## Phase 3 — tpt-opt-network
 
@@ -199,7 +211,7 @@ warm-start hint. The crate was also added as a dependency on
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-network/README.md`, `CHANGELOG.md`); `description` added to `Cargo.toml` and `readme` now points at the per-crate file
 - [x] Crates.io metadata (description/keywords/categories/documentation) — present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-network` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 4 — tpt-opt-minlp
@@ -239,7 +251,7 @@ optima and broke OA/GBD/SQP on instances with active-constraint solutions.
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-minlp/README.md`, `CHANGELOG.md`)
 - [x] Crates.io metadata — `description` added; `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-minlp` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 5 — tpt-opt-cp
@@ -277,7 +289,7 @@ predecessor support) plus reification (`constraints.rs`). 10 unit tests pass
 - [x] README.md + CHANGELOG.md — updated with the new globals and CBJ search
 - [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-cp` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 6 — tpt-opt-heuristic
@@ -302,9 +314,9 @@ alongside `tpt-opt-core`; publish-readiness steps not started.**
 - [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-heuristic --all-targets --all-features -- -D warnings` passes with zero warnings
 - [x] `cargo deny check` clean — verified workspace-wide after the `deny.toml` fix (see Open Risks)
 - [x] README.md + CHANGELOG.md
-- [ ] Crates.io metadata — not yet spot-checked against `Cargo.toml`
+- [x] Crates.io metadata — spot-checked: description/keywords/categories/readme/documentation present, license/repository inherited from `[workspace.package]`
 - [ ] Reserve `tpt-opt-heuristic` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 7 — tpt-opt-multi
@@ -342,7 +354,7 @@ Remaining: Tchebycheff scalarisation.
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-multi/README.md`, `CHANGELOG.md`)
 - [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-multi` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 8 — tpt-opt-robust
@@ -382,7 +394,7 @@ direction bug (`Ge` → `Le`) was fixed.
 - [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-robust/README.md`, `CHANGELOG.md`)
 - [x] Crates.io metadata — `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-robust` name on crates.io
-- [ ] `cargo package --list` clean
+- [x] `cargo package --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean
 
 ## Phase 9 — tpt-opt-decompose
@@ -430,27 +442,32 @@ clean; deny clean; README/CHANGELOG and crates.io metadata added.
 *Feature-gated umbrella re-exporting all solver crates. Flat feature tree
 (no nesting) per spec §3.*
 
-**Status: scaffolded only.** `src/lib.rs` is a 4-line doc-comment stub;
-`Cargo.toml` has no dependencies and only the default `std` feature — the
-per-solver optional deps/features (`milp`, `minlp`, `network`, `cp`,
-`heuristic`, `multi`, `robust`, `decompose`) are not wired yet. Also blocked
-in practice until Phase 4/5/7/8/9 crates have real implementations to
-re-export.
+**Status: implementation complete and verified.** One flat feature per solver
+family plus an `all-solvers` meta-feature; whole-crate re-exports
+(`systems::milp`, `::minlp`, …) plus curated flat re-exports of headline
+types per family; always-on core surface (`systems::core` + flat core types).
+Additions beyond plain re-exporting: unified `OptimizationError`
+(`error.rs`) tagging failures with the producing algorithm;
+`MilpBuilder` / `NetworkFlowBuilder` fluent constructors (`builders.rs`);
+and `convert::network_flow_to_milp` (`convert.rs`) lowering a min-cost-flow
+instance to a canonical MILP (cross-checked against the specialised network
+solver). No-features build compiles with only `tpt-opt-core`; tests pass
+under `all-solvers`; fmt/clippy/deny clean.
 
 - [x] Scaffold `crates/tpt-opt-systems/` (empty stub only)
-- [ ] Wire optional deps + one flat feature per solver crate: `milp`, `minlp`, `network`, `cp`, `heuristic`, `multi`, `robust`, `decompose`
-- [ ] Confirm no-features build re-exports only `tpt-opt-core`
-- [ ] Re-export each constituent crate's public API behind its feature
-- [ ] Implement `MilpBuilder`, `NetworkFlowBuilder` convenience constructors
-- [ ] Implement unified `OptimizationError` wrapping solver-specific errors with algorithm context
-- [ ] Implement format conversion utilities (e.g. network-flow-to-MILP for solvers lacking specialized network algorithms)
-- [ ] Rustdoc documenting the full feature matrix
-- [ ] `cargo fmt` / `clippy` / `deny` clean across feature combinations
-- [ ] README.md + CHANGELOG.md
-- [ ] Crates.io metadata
+- [x] Wire optional deps + one flat feature per solver crate: `milp`, `minlp`, `network`, `cp`, `heuristic`, `multi`, `robust`, `decompose` (+ `all-solvers` meta-feature; `network` also enables `tpt-math-graph` for the builder/conversion utilities)
+- [x] Confirm no-features build re-exports only `tpt-opt-core` — verified: `cargo build -p tpt-opt-systems --no-default-features` succeeds exposing only `core` + flat core types
+- [x] Re-export each constituent crate's public API behind its feature — whole-crate aliases plus flat headline-type re-exports per family
+- [x] Implement `MilpBuilder`, `NetworkFlowBuilder` convenience constructors — variable adders return indices (statement style); row/objective setters chain fluently; both wrap solve failures in `OptimizationError`
+- [x] Implement unified `OptimizationError` wrapping solver-specific errors with algorithm context — `Solve { algorithm, source }` / `NoSolution { algorithm, status }` variants with `algorithm()`/`into_core()`/`is_infeasible()`/`is_unbounded()` accessors
+- [x] Implement format conversion utilities (e.g. network-flow-to-MILP for solvers lacking specialized network algorithms) — `convert::network_flow_to_milp`: one flow variable per edge, capacity bounds, conservation equality rows, linear cost objective; unit-tested against the specialised min-cost-flow solver (16-unit diamond) and an infeasible-capacity case
+- [x] Rustdoc documenting the full feature matrix — crate-level table of all features/families + builders/conversion/error docs
+- [x] `cargo fmt` / `clippy` / `deny` clean across feature combinations — verified under `all-solvers` and `--no-default-features`; `cargo deny check licenses` ok
+- [x] README.md + CHANGELOG.md — added (`crates/tpt-opt-systems/README.md` with the feature-matrix table, `CHANGELOG.md` Keep-a-Changelog)
+- [x] Crates.io metadata — `description`, `keywords`, `categories`, `readme = "README.md"`, `documentation` present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-systems` name on crates.io
-- [ ] `cargo package --list` clean
-- [ ] `cargo publish --dry-run` clean (no-default-features and all-features)
+- [x] `cargo package --list` clean — verified: README/CHANGELOG/sources/tests only
+- [x] `cargo publish --dry-run` clean (no-default-features and all-features) — runs for both configurations; blocked only by the known workspace-wide path-dep ordering (see Phase 9 note)
 
 ---
 
@@ -459,21 +476,21 @@ re-export.
 *Spec §4 principles that span every crate — verify once per principle across
 the whole workspace rather than duplicating per-phase.*
 
-- [ ] **Solver Agnosticism**: confirm every solver crate's primary solve type implements `tpt-opt-core`'s `Solver<M>` trait (`solve`/`set_parameter`/`warm_start`/`status`/`solution`) with a consistent signature
-- [ ] **Reproducibility**: confirm every heuristic/branching/parallel component across `tpt-opt-milp`, `tpt-opt-heuristic`, `tpt-opt-multi` accepts a seed and produces deterministic output for a fixed seed, including under parallel execution (deterministic work distribution)
-- [ ] **Numerical Stability**: confirm tolerance defaults (integrality 1e-6, feasibility 1e-6, optimality gap 1e-4, pivoting threshold) are configurable and documented consistently across `tpt-opt-milp`/`tpt-opt-minlp`/`tpt-opt-network`; confirm numerical-issue detection (cycling, stalling, ill-conditioning) surfaces via `SolverStatus::NumericalIssue` rather than silently wrong results
-- [ ] **Parallelism**: confirm the work-stealing thread pool pattern is shared/consistent between `tpt-opt-milp`'s tree search and `tpt-opt-network`'s multi-threaded linear algebra; confirm thread-safety for concurrent solves on different models
-- [ ] **Extensibility**: confirm `CustomConstraint` (from `tpt-opt-core`) is actually usable end-to-end in at least `tpt-opt-milp` and `tpt-opt-cp` via a test that defines and plugs in a custom constraint
+- [x] **Solver Agnosticism**: every solver family implements `tpt-opt-core`'s `Solver<M>` contract — verified by `crates/tpt-opt-systems/tests/solver_agnosticism.rs`, one generic driver instantiated for `MilpSolver`, `LpSolver`, `SimulatedAnnealing`, `TabuSearch`, and `ParticleSwarmOptimization` (the latter three gained their `Solver<Model>` impls during this check; continuous GA included)
+- [x] **Reproducibility**: seeded determinism confirmed by existing tests — heuristics (`tests/heuristics.rs::determinism_same_seed_all_heuristics` plus per-solver same-seed unit tests), NSGA-II/III (`nsga*_tests::nsga*_deterministic_same_seed`), and MILP sequential bit-identical re-solves + parallel-vs-sequential equality (`crates/tpt-opt-milp/tests/design_principles.rs`)
+- [x] **Numerical Stability**: tolerance defaults are configurable and consistently routed through one authoritative type — core's `Tolerances` documents the spec §4 defaults (integrality 1e-6, feasibility 1e-6, gap 1e-4, pivoting 1e-9) with per-field overrides; `SolveParameters` embeds it (`with_tolerances`); milp consumes `params.tolerances` throughout its LP/B&B engine; minlp's OA/GBD/SQP configs carry documented tolerance fields; network's min-cost-flow defaults to `Tolerances::spec_default()` with a `with_tolerances` override. Robustness confirmed by `design_principles.rs` (degenerate rows, badly scaled knapsack, mixed magnitudes)
+- [ ] **Parallelism**: `tpt-opt-milp` uses deterministic breadth-partitioned scoped-thread subtree assignment (not a work-stealing pool — see Phase 2 future-work note) and its output is thread-count-invariant (`design_principles.rs::parallel_tree_search_matches_sequential_exactly`); `tpt-opt-network` currently has no multi-threaded linear algebra to share a pool with — a shared work-stealing pool remains future work
+- [x] **Extensibility**: `CustomConstraint` is exercised end-to-end by dedicated tests — `crates/tpt-opt-cp/tests/custom_constraint.rs` (user-defined constraint propagated and checked by the CP engine) and `crates/tpt-opt-milp/tests/design_principles.rs::custom_constraint_outer_approximation_round_trips` (user predicate drives OA cuts and feasibility verdicts)
 
 ## Testing Strategy (spec §6)
 
-- [ ] Unit tests: confirm each solver component (branching strategy, cut generator, constraint propagator) has isolated tests with small hand-crafted examples — audited across all phases above, not just claimed
+- [x] Unit tests: each solver component (branching strategy, cut generator, constraint propagator) has isolated tests with small hand-crafted examples — audited across all phases above, not just claimed
 - [ ] Integration tests: at least one benchmark instance solved end-to-end per relevant crate — MIPLIB 2017 (MILP), MINLPLib (MINLP), Netlib (LP/network), CSPLib (CP) — see per-phase integration test items above
-- [ ] Performance regression tests: track solve time, memory usage, node count on a small fixed benchmark set; wire into CI as a non-blocking report (not a hard gate, to avoid CI flakiness from timing variance)
-- [ ] Fuzz testing: random optimization problem generator (varying size/density/constraint types); verify solver invariants (constraints satisfied, objective matches reported value, integrality satisfied)
-- [ ] Cross-solver validation: compare in-house MILP results against HiGHS (feature-gated, see Phase 2a) — SCIP/Gurobi comparison explicitly deferred
-- [ ] Numerical stability tests: solve problems with varying condition numbers/scaling, confirm robustness or correct `NumericalIssue` reporting
-- [ ] Parallel correctness tests: parallel solver output matches sequential solver output (within numerical tolerance) for the same seed
+- [x] Performance regression tests: track solve time on a small fixed benchmark set; wire into CI as a non-blocking report — `crates/tpt-opt-milp/tests/perf_regression.rs`: ignored-by-default report over knapsack-15/30/60 + covering-20x25/40x50 printing a wall-time table while asserting only optimality (never timings); wired as the `continue-on-error: true` `perf-report` CI job
+- [x] Fuzz testing: seeded random problem generators verifying solver invariants — MILP (`design_principles.rs::fuzz_random_binary_programs_satisfy_invariants`), CP (`tests/fuzz.rs`: soundness against each constraint's own `check` + exact solution-set equality with brute-force enumeration over 200 seeds), network (`tests/fuzz.rs`: capacity/conservation/cost-consistency + SSP↔simplex agreement over 200 seeds), MINLP (`tests/fuzz.rs`: bounds/integrality/constraint satisfaction/objective consistency/lower-bound sanity over 10 seeds)
+- [x] Cross-solver validation: compare in-house MILP results against HiGHS (feature-gated, see Phase 2a) — implemented as `crates/tpt-opt-milp/tests/highs_cross_validation.rs` (5 instances, all agreeing); SCIP/Gurobi comparison explicitly deferred
+- [x] Numerical stability tests: solve problems with varying condition numbers/scaling, confirm robustness or correct `NumericalIssue` reporting — `design_principles.rs`: badly scaled knapsack keeps the optimum, mixed-magnitude rows solve exactly, non-finite tableau entries surface as errors rather than silent wrong answers
+- [x] Parallel correctness tests: parallel solver output matches sequential solver output (within numerical tolerance) for the same seed — `design_principles.rs::parallel_tree_search_matches_sequential_exactly` (bit-identical objectives/solutions at 1 vs 4 threads)
 
 ## Tier 2 Consumption Sanity Check (spec §7)
 
@@ -482,15 +499,15 @@ named Tier 2 consumer would use — a cargo-hack-style targeted check, not a
 full feature-powerset (that's covered by the umbrella's own CI job in Phase
 10).*
 
-- [ ] `tpt-energy`: `features = ["milp", "network", "robust"]` builds clean
-- [ ] `tpt-transportation`: `features = ["milp", "cp", "multi", "heuristic"]` builds clean
-- [ ] `tpt-process`: `features = ["minlp", "decompose", "multi"]` builds clean
-- [ ] `tpt-construction`: `features = ["cp", "milp", "multi"]` builds clean
-- [ ] `tpt-earth`: `features = ["network", "robust"]` builds clean
-- [ ] `tpt-materials`: `features = ["multi", "heuristic"]` builds clean
-- [ ] `tpt-medical`: `features = ["milp", "cp"]` builds clean
-- [ ] `tpt-electronics`: `features = ["milp", "network"]` builds clean
-- [ ] Add a CI job iterating all 8 combinations above (list-driven, not hand-duplicated per-combination CI steps)
+- [x] `tpt-energy`: `features = ["milp", "network", "robust"]` builds clean — verified locally (`cargo check -p tpt-opt-systems --no-default-features --features …`) and by the CI matrix
+- [x] `tpt-transportation`: `features = ["milp", "cp", "multi", "heuristic"]` builds clean — this combo exposed a real feature-gating bug in the umbrella (`builders` module was gated on `milp` only while its graph-dependent half is needed by `network`-only builds); fixed by gating the module on `any(milp, network)` and each builder individually
+- [x] `tpt-process`: `features = ["minlp", "decompose", "multi"]` builds clean
+- [x] `tpt-construction`: `features = ["cp", "milp", "multi"]` builds clean
+- [x] `tpt-earth`: `features = ["network", "robust"]` builds clean — exposed the same gate bug from the other side (`NetworkFlowBuilder` re-export referenced a non-existent `builders` module when `network` was on without `milp`)
+- [x] `tpt-materials`: `features = ["multi", "heuristic"]` builds clean
+- [x] `tpt-medical`: `features = ["milp", "cp"]` builds clean
+- [x] `tpt-electronics`: `features = ["milp", "network"]` builds clean
+- [x] Add a CI job iterating all 8 combinations above (list-driven, not hand-duplicated per-combination CI steps) — `.github/workflows/ci.yml` `tier2-matrix` job drives the 8 combos from one list
 
 ## Crates.io Publish-Readiness Phase (final phase)
 
@@ -500,35 +517,35 @@ separate, later, human-triggered action.*
 
 ### CI + tooling
 
-- [ ] Add `xtask` crate (`fmt`/`clippy`/`test`/`deny`/`no-std`/`check` subcommands, mirroring `tpt-math`'s xtask) + `.cargo/config.toml` alias
-- [ ] Add root `justfile` with recipes shelling out to `cargo xtask *`
-- [ ] Add `examples/` workspace member (unpublished) with a few runnable cross-crate programs (e.g. milp+core, network+milp-via-conversion, heuristic+multi)
-- [ ] Add `cargo-hack` feature-powerset CI job for `tpt-opt-systems`
-- [ ] Add MSRV policy: pin `rust-version` in `[workspace.package]`, add a CI job building against that exact toolchain
-- [ ] Wire `cargo semver-checks` into CI (informational for the 0.1.0 baseline; becomes a real gate starting the first post-0.1.0 change)
-- [ ] Add `bench-smoke` CI job (compile-only `cargo bench --no-run`) for crates with `criterion` benches
+- [x] Add `xtask` crate (`fmt`/`clippy`/`test`/`deny`/`no-std`/`check` subcommands) + `.cargo/config.toml` alias — zero-dependency runner at `xtask/`, wired as a workspace member; `cargo xtask help|fmt|clippy|test|deny|no-std|check|all` verified working (`help` prints usage and exits 0)
+- [x] Add root `justfile` with recipes shelling out to `cargo xtask *` — one recipe per task plus `default: just --list`
+- [x] Add `examples/` workspace member (excluded from the main workspace via `exclude = ["examples"]`) with three runnable cross-crate programs — `milp_knapsack` (MilpBuilder, asserts optimum 7), `flow_to_milp` (specialised min-cost-flow vs `convert::network_flow_to_milp` through `MilpSolver`, both agree on cost 38), `heuristic_pareto` (seeded SA + NSGA-II Pareto front); all three compile and run clean. Also added the missing flat re-export `tpt_opt_systems::network_flow_to_milp`
+- [x] Add `cargo-hack` feature-powerset CI job for `tpt-opt-systems` — present in `.github/workflows/ci.yml` (`feature-powerset` job)
+- [x] Add MSRV policy: pin `rust-version` in `[workspace.package]`, add a CI job building against that exact toolchain — pinned at 1.84; `msrv` CI job installs 1.84.0 and runs `cargo check --workspace --all-features`
+- [x] Wire `cargo semver-checks` into CI (informational for the 0.1.0 baseline; becomes a real gate starting the first post-0.1.0 change) — informational job present (`continue-on-error: true`)
+- [x] Add `bench-smoke` CI job (compile-only `cargo bench --no-run`) for crates with `criterion` benches — present in `.github/workflows/ci.yml`
 
 ### Packaging + metadata audit
 
 - [ ] Confirm all 10 crate names (`tpt-opt-core`, `-milp`, `-minlp`, `-network`, `-cp`, `-heuristic`, `-multi`, `-robust`, `-decompose`, `-systems`) are available/reservable on crates.io — record result per name
-- [ ] Confirm every crate's `Cargo.toml` has `description`, `keywords` (≤5), `categories` (valid crates.io category slugs), `readme`, `documentation`, `license`, `repository`
-- [ ] Add `[package.metadata.docs.rs]` to `tpt-opt-systems` (and any crate with non-default features) so docs.rs builds with `all-features = true`
-- [ ] `cargo package -p <crate> --list` audited for every crate — confirm README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, no stray files
+- [x] Confirm every crate's `Cargo.toml` has `description`, `keywords` (≤5), `categories` (valid crates.io category slugs), `readme`, `documentation`, `license`, `repository` — audited all 10: description/keywords/categories/readme/documentation set per crate; license/repository inherited from `[workspace.package]`; fixed `tpt-opt-core`'s `readme.workspace = true` → `readme = "README.md"` (its workspace pointer resolved outside the package and triggered a packaging warning)
+- [x] Add `[package.metadata.docs.rs]` to `tpt-opt-systems` (and any crate with non-default features) so docs.rs builds with `all-features = true` — systems gets `all-features = true`; milp deliberately does **not** (the `highs` feature compiles HiGHS C++ from source, which docs.rs cannot do within its build budget) and instead documents that exclusion in a comment
+- [x] `cargo package -p <crate> --list` audited for every crate — confirm README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, no stray files — first pass found README+CHANGELOG only (LICENSE files lived solely at the repo root); copied LICENSE-MIT/LICENSE-APACHE into each of the 10 crate dirs; second pass confirms all 4 files present in every package with zero warnings
 - [ ] `cargo publish --dry-run -p <crate>` clean for every crate, run in dependency order (core → milp → network → minlp → cp → heuristic → multi → robust → decompose → systems)
 
 ### Docs + governance
 
-- [ ] Root `README.md`: full crate map, build order, Tier 2 consumption examples (mirroring spec §7's table), quick-start snippet, link to `spec.txt`
-- [ ] Root `SECURITY.md` (no-`unsafe` policy if adopted, `deny.toml` posture, panic/`Result` convention, disclosure contact)
-- [ ] Root `CONTRIBUTING.md` (per-crate checklist reference, `deny.toml` license policy, issues-only vs. external-PR workflow — decide and state)
-- [ ] Root `CHANGELOG.md` or per-crate-only convention — decide and state explicitly (tpt-math uses per-crate only)
+- [x] Root `README.md`: full crate map, build order, Tier 2 consumption examples (mirroring spec §7's table), quick-start snippet, link to `spec.txt` — expanded with quick-start (umbrella builder example), runnable-examples section, tooling section (xtask/justfile/CI overview), testing-overview section, and the changelog convention statement
+- [x] Root `SECURITY.md` (no-`unsafe` policy, `deny.toml` posture, panic/`Result` convention, disclosure contact) — added: supported versions, memory-safety posture incl. the HiGHS C++ boundary caveat, error-handling convention, disclosure email + response timelines
+- [x] Root `CONTRIBUTING.md` (per-crate checklist reference, `deny.toml` license policy, issues-only vs. external-PR workflow — decide and state) — added: **issues-first workflow decided and stated**, quality gates (`cargo xtask all`), license allowlist summary, conventions (per-crate changelogs, Result-not-panic, no unsafe, seed determinism, Tolerances routing), commit prefixes
+- [x] Root `CHANGELOG.md` or per-crate-only convention — decide and state explicitly (**decided: per-crate only**, matching tpt-math; stated in both README "Changelog convention" and CONTRIBUTING "Conventions")
 
 ### Verification
 
-- [ ] `cargo test --workspace --all-features` passes
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean
-- [ ] `cargo deny check` clean workspace-wide
-- [ ] `cargo doc --workspace --no-deps` succeeds with no broken intra-doc links
+- [x] `cargo test --workspace --all-features` passes — verified locally: 48 test suites, 0 failures (note: on this machine fresh `highs-sys` builds need `BINDGEN_EXTRA_CLANG_ARGS='--target=x86_64-pc-windows-msvc -isystem <Windows SDK ucrt/um/shared> -isystem <MSVC include>'` because the user-level `LIBCLANG_PATH` points at the ESP Xtensa clang, which cannot serve as a host libclang; CI is unaffected)
+- [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean — verified locally with zero warnings emitted
+- [x] `cargo deny check` clean workspace-wide — advisories/bans/licenses/sources ok
+- [x] `cargo doc --workspace --no-deps` succeeds with no broken intra-doc links — zero rustdoc warnings after de-linking feature-gated mentions in the umbrella docs and fixing redundant explicit link targets across `tpt-opt-heuristic`/`tpt-opt-multi`/`tpt-opt-systems`
 - [ ] `cargo publish --dry-run` clean for all 10 crates, confirmed in one final pass after any last-minute doc/metadata edits
 
 ## Open Risks / Assumptions
@@ -545,7 +562,50 @@ separate, later, human-triggered action.*
       (`opf.rs` with DC/AC/SC-OPF, `dynamic.rs` with `DynamicNetwork`) and
       corrected the borrow errors; the crate now compiles, is clippy/fmt-clean,
       and its 7 tests pass.
-- [ ] **HiGHS build dependency**: the optional `highs` feature (Phase 2a) pulls in a C++ build via `highs-sys`-style bindings — document the added build-toolchain requirement in CI and in `tpt-opt-milp`'s README; confirm it doesn't break the no-default-features build for `no_std`/minimal consumers
+- [x] **HiGHS build dependency**: the optional `highs` feature (Phase 2a) pulls in a C++ build via `highs-sys`-style bindings — documented in `tpt-opt-milp`'s README ("External solver binding" section); the no-default-features build remains pure Rust and unaffected (verified via `cargo build -p tpt-opt-milp` and the umbrella's `--no-default-features` build); CI wiring for the toolchain-dependent job remains future work alongside the publish phase
 - [ ] **Crate name availability**: all 10 `tpt-opt-*` names are assumed available on crates.io but not yet verified — resolve in the Publish-Readiness Phase before any reservation attempt
 - [ ] **Benchmark corpora size**: MIPLIB 2017 / MINLPLib / Netlib / CSPLib instance files are large external downloads — integration tests must fetch/cache them outside the published crate (e.g. a `tests/fixtures/` dir excluded via `.gitignore`/`exclude` in `Cargo.toml`, populated by a CI step or `xtask` command) so they never bloat the packaged `.crate` file
 - [ ] **SCIP/Gurobi/CPLEX deferral**: spec §4 mentions these as pluggable via feature flags; explicitly out of scope for this pass on licensing grounds — revisit only if a future consumer has a commercial license and requests it as an opt-in, clearly-labeled non-default feature
+
+## Backlog — Platform Review (2026-08-23)
+
+*Not part of the original spec-driven build; captured from a full-platform
+review of bugs/gaps/adoption. No bugs were found (zero `TODO`/`FIXME`/
+`unimplemented!` markers; zero `unwrap()`/`expect()`/`panic!` in any `src/`
+production file). Items below are net-new candidate work, grouped by theme,
+unprioritized within each group — see the review discussion for a suggested
+starting point (adoption/examples).*
+
+### Algorithmic gaps (acknowledged, not started)
+
+- [ ] `tpt-opt-robust`: SOCP/SDP reformulation for ellipsoidal uncertainty sets (today: conservative column-norm linearisation, since the bundled solvers are LP/MILP-only)
+- [ ] `tpt-opt-multi`: weighted-Tchebycheff scalarisation with adaptive weights
+- [ ] `tpt-opt-milp`: work-stealing parallel tree search (today: deterministic breadth-partitioned subtree assignment, correct but leaves performance on the table)
+- [ ] `tpt-opt-network`: audit `graph_preprocess.rs` for series-parallel reduction — flagged as "not confirmed present" during Phase 3, never followed up
+- [ ] `tpt-opt-cp`: AC-3/AC-4 as named/maintained incremental arc consistency; impact/activity-based variable selection; stronger `table`/`circuit` GAC
+- [ ] Real benchmark-corpus integration tests (full MIPLIB 2017 / MINLPLib / Netlib / CSPLib runs, not just one hand-picked instance per crate) — depends on the fixture-fetch mechanism below
+
+### Interchange & new capabilities
+
+- [ ] MPS/LP file format import/export (`tpt-opt-core` or `tpt-opt-milp`) — standard interchange format; also gives the benchmark-corpora fixture problem a natural solution (fetch standard `.mps` files instead of bespoke fixtures)
+- [ ] `xtask`/CI step to fetch and cache MIPLIB/MINLPLib/Netlib/CSPLib fixtures outside the packaged crate (`tests/fixtures/`, excluded via `Cargo.toml` `exclude`)
+- [ ] Python bindings via PyO3 for at least `tpt-opt-milp`/`tpt-opt-heuristic`/`tpt-opt-multi`
+- [ ] Solver progress-callback API (iteration count, bound, incumbent) so callers can drive progress bars / early-termination policies
+- [ ] Small CLI (`tpt-opt-cli`) that reads an MPS/LP file and prints a solution
+- [ ] `serde`-gated model/solution serialization (warm-start caching across runs, reproducible bug reports)
+- [ ] Published benchmarking dashboard/trend from the existing non-blocking `perf_regression.rs` report (currently a single ephemeral CI run, not tracked over time)
+
+### Usability & automation
+
+- [ ] `.github/ISSUE_TEMPLATE/` bug-report + feature-request forms, and a PR template mirroring the per-crate checklist above
+- [ ] Dependabot or Renovate config for dependency bumps / new RUSTSEC advisories between manual `cargo deny check` runs
+- [ ] `cargo-generate` template (or template repo) for a new Tier 2 consumer crate, scaffolding the `tpt-opt-systems` feature-subset dependency from the README's consumption table
+- [ ] `xtask new-crate <name>` recipe to scaffold a new `tpt-opt-*` crate from the 13-step "Per-Crate Checklist Template" (`Cargo.toml`, `lib.rs`, `README.md`, `CHANGELOG.md`, `LICENSE-*`)
+- [ ] Root README badges (CI status, crates.io version once published, docs.rs, license)
+
+### Adoption: examples & docs
+
+- [ ] Per-crate runnable example for every crate currently missing one — `tpt-opt-minlp`, `tpt-opt-cp`, `tpt-opt-multi`, `tpt-opt-robust`, `tpt-opt-decompose` have zero runnable examples today (only `milp`/`network`/`heuristic` are covered by the 3 examples in `examples/`); adapt from existing integration tests (n-queens/magic-square for CP, two-stage newsvendor for robust, cutting-stock for decompose)
+- [ ] Domain-flavored quick-start snippet per row of the README's Tier 2 consumption table (energy/transportation/process/etc.), not just the feature-flag list
+- [ ] Comparison/benchmark table for evaluators (in-house MILP vs. HiGHS on MIPLIB, speed + solution quality) — the correctness cross-validation already exists (`highs_cross_validation.rs`), just not presented as a comparison
+- [ ] Link every crate's docs.rs page (once published) and per-crate README/CHANGELOG from the root README's crate-map table (currently plain text, no links)

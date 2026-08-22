@@ -1,0 +1,1 @@
+{"dependencies":[{"id":30474891,"version_id":2751520,"crate_id":"highs-sys","req":"^1.14.3","optional":false,"default_features":true,"features":[],"target":null,"kind":"normal","downloads":0},{"id":30474892,"version_id":2751520,"crate_id":"log","req":"^0.4.27","optional":false,"default_features":true,"features":[],"target":null,"kind":"normal","downloads":0}]}

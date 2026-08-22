@@ -4,7 +4,7 @@
 //! [`Objective`] trait exposes the dimension, per-coordinate bounds, the raw
 //! objective value, and the optimisation [`Sense`]. Two ready-made
 //! implementations are provided: [`ObjectiveFn`] (from a closure) and
-//! [`ModelObjective`] (adapts a `tpt-opt-core` [`Model`](tpt_opt_core::Model)).
+//! [`ModelObjective`] (adapts a `tpt-opt-core` [`Model`]).
 
 use tpt_opt_core::{Model, Sense, VarType};
 
@@ -93,7 +93,7 @@ where
     }
 }
 
-/// Adapter turning a `tpt-opt-core` [`Model`](tpt_opt_core::Model) into a
+/// Adapter turning a `tpt-opt-core` [`Model`] into a
 /// continuous [`Objective`] for the heuristics.
 ///
 /// The model's linear objective (with its [`Sense`]) is minimised / maximised;

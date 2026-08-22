@@ -6,17 +6,20 @@
 //! implemented as generic functions over the [`Gene`] trait, so custom genomes
 //! can be plugged in by implementing `Gene` + `Genome`.
 //!
-//! Determinism: all randomness flows through a seeded [`Xoshiro256`](crate::Xoshiro256).
+//! Determinism: all randomness flows through a seeded [`Xoshiro256`].
 
 use std::cmp::Ordering;
 
 use tpt_math_prob::Xoshiro256;
-use tpt_opt_core::{OptError, Sense};
+use tpt_opt_core::{
+    Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
+};
 
 use crate::history::ConvergenceHistory;
 use crate::problem::Objective;
 use crate::result::HeuristicResult;
 use crate::rng::Rng;
+use crate::ModelObjective;
 
 /// A single gene in a [`Genome`].
 ///
@@ -518,7 +521,7 @@ impl<G: Genome> GeneticAlgorithm<G> {
         self
     }
 
-    /// Stop early (reporting [`SolverStatus::Optimal`](tpt_opt_core::SolverStatus::Optimal))
+    /// Stop early (reporting [`SolverStatus::Optimal`])
     /// once the incumbent reaches `target`.
     pub fn with_target(mut self, target: f64) -> Self {
         self.target = Some(target);
@@ -648,7 +651,7 @@ impl<G: Genome> GeneticAlgorithm<G> {
 }
 
 impl GeneticAlgorithm<Vec<f64>> {
-    /// Build a continuous GA from an [`Objective`](crate::Objective).
+    /// Build a continuous GA from an [`Objective`].
     pub fn for_objective(objective: impl Objective + 'static) -> Self {
         let dim = objective.dim();
         let bounds: Vec<(f64, f64)> = (0..dim).map(|i| objective.bound(i)).collect();
@@ -666,6 +669,56 @@ impl GeneticAlgorithm<Vec<usize>> {
     ) -> Self {
         let bounds = vec![(0.0, n as f64); n];
         GeneticAlgorithm::new(f, sense, n, bounds)
+    }
+}
+
+/// Solver-agnostic adapter for the continuous GA: run over a canonical
+/// [`Model`] by temporarily installing a [`ModelObjective`]-backed fitness
+/// closure.
+impl Solver<Model> for GeneticAlgorithm<Vec<f64>> {
+    fn solve(&mut self, model: &Model) -> Result<Solution, OptError> {
+        let obj = ModelObjective::new(model.clone());
+        let original =
+            std::mem::replace(&mut self.objective, Box::new(move |g: &Vec<f64>| obj.evaluate(g)));
+        let result = GeneticAlgorithm::solve(self);
+        self.objective = original;
+        result.map(|r| r.solution())
+    }
+
+    fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
+        if let Some(seed) = param.seed {
+            self.seed = seed;
+            self.rng = Xoshiro256::new(seed);
+        }
+        Ok(())
+    }
+
+    fn warm_start(&mut self, _warm: WarmStart) -> Result<(), OptError> {
+        // The GA has no single initial point (it seeds a whole population);
+        // warm-start hints are accepted and ignored.
+        Ok(())
+    }
+
+    fn status(&self) -> SolverStatus {
+        if self.history.is_empty() {
+            SolverStatus::Error
+        } else if self.target.is_some() {
+            SolverStatus::Optimal
+        } else {
+            SolverStatus::TimeLimit
+        }
+    }
+
+    fn solution(&self) -> Option<Solution> {
+        if self.history.is_empty() {
+            None
+        } else {
+            let best_val = self.history.best().unwrap_or(f64::INFINITY);
+            Some(
+                Solution::new(Vec::new(), best_val, self.status())
+                    .with_iterations(self.generations),
+            )
+        }
     }
 }
 

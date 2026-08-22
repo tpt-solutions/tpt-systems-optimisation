@@ -334,6 +334,42 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     col_expr.resize(n_cols, None);
 
     if mrows == 0 {
+        // No constraint rows: every variable is independent, so the LP is
+        // unbounded as soon as any variable can improve indefinitely toward
+        // an infinite bound.
+        for j in 0..n {
+            let cj = obj_coeff(&model.objective, j);
+            if cj.abs() <= 1e-12 {
+                continue;
+            }
+            let improving_increase = match sense {
+                Sense::Minimize => cj < 0.0,
+                Sense::Maximize => cj > 0.0,
+            };
+            let unbounded =
+                if improving_increase { !var_ub[j].is_finite() } else { !var_lb[j].is_finite() };
+            if unbounded {
+                sol.status = LpStatus::Unbounded;
+                return finish_state(
+                    sol,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    n_struct,
+                    n_cols,
+                    0,
+                    col_to_orig,
+                    lp_cost,
+                    lp_cost_raw,
+                    var_lb,
+                    var_ub,
+                    recover,
+                    col_expr,
+                    obj_constant,
+                    sense,
+                );
+            }
+        }
         let mut x = vec![0.0f64; n];
         for j in 0..n {
             let cj = obj_coeff(&model.objective, j);

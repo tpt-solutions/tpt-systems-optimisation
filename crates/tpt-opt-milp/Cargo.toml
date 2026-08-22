@@ -13,10 +13,22 @@ keywords = ["milp", "mixed-integer", "linear-programming", "branch-and-bound", "
 categories = ["science::math", "algorithms"]
 documentation = "https://docs.rs/tpt-opt-milp"
 
+# Deliberately NOT `all-features = true`: the optional `highs` feature
+# compiles the HiGHS C++ library from source, which docs.rs cannot do
+# reliably within its build budget. Docs are built from the pure-Rust
+# default features; the HiGHS binding is documented in prose instead.
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
     tpt-opt-core = { workspace = true }
     tpt-math-linalg = { workspace = true }
+    highs = { version = "2.4", optional = true }
 
 [features]
 default = ["std"]
 std = []
+# Optional external-solver binding: HiGHS (MIT) as an alternate `Solver`
+# implementation. Requires a C++ build toolchain (cmake + MSVC/gcc/clang)
+# because `highs-sys` compiles HiGHS from source.
+highs = ["dep:highs"]

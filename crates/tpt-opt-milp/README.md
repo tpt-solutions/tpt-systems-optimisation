@@ -6,30 +6,46 @@ no `unsafe`, `std` with an `alloc`/no_std-compatible core.
 
 ## What is implemented
 
-* **Branch-and-bound / branch-and-cut core** (`milp.rs`) — a root-node Gomory
-  mixed-integer cut pass plus depth-first (LIFO) diving.
-* **Cutting planes** — Gomory mixed-integer cuts (`cuts.rs`). Clique, cover,
-  MIR and lift-and-project cuts are not yet implemented.
-* **Primal heuristics** — rounding and a feasibility pump (`try_rounding` /
-  `try_feasibility_pump`). RINS and local branching are not yet implemented.
-* **Branching** — most-fractional and a best-effort pseudo-cost estimate; strong
-  branching not yet implemented.
-* **Node selection** — depth-first (LIFO) diving; best-bound / best-estimate not
-  yet implemented.
+* **Branch-and-bound / branch-and-cut core** (`milp.rs`) — root-node cut passes,
+  primal heuristics at the nodes, and deterministic parallel tree search via
+  `.with_threads(n > 1)`.
+* **Cutting planes** — model-space clique, cover (with exact lifting) and MIR
+  cuts (`cuts.rs`); tableau-space Gomory mixed-integer and lift-and-project
+  intersection cuts (`gomory.rs`).
+* **Primal heuristics** — rounding, feasibility pump, RINS and local branching.
+* **Branching** — most-fractional, pseudo-cost, and limited strong branching.
+* **Node selection** — best-bound, depth-first, and best-estimate.
+* **Modelling extras** — SOS1/SOS2 sets, indicator constraints, and
+  piecewise-linear objectives.
 * **Determinism** — `.with_seed(...)` makes branching and heuristics
   reproducible for a fixed seed.
 
-External MILP solvers can be plugged in behind the `tpt_opt_core::Solver`
-trait; an optional, non-default `highs` feature (HiGHS, MIT) is planned for
-benchmarking/production use (see spec §4 "Solver Agnosticism").
+## External solver binding (feature `highs`)
+
+An optional, non-default `highs` feature wires [HiGHS](https://highs.dev)
+(MIT-licensed, via the `highs`/`highs-sys` crates) as an alternate
+`tpt_opt_core::Solver` implementation (`HighsSolver`) for benchmarking and
+cross-validation against the bundled engine:
+
+```toml
+tpt-opt-milp = { version = "0.1", features = ["highs"] }
+```
+
+> **Build-toolchain requirement:** enabling `highs` compiles the HiGHS C++
+> sources from scratch. This requires **cmake** plus a C++ compiler toolchain
+> (**MSVC** on Windows, gcc/clang on Linux/macOS) at build time. The default
+> feature set stays pure Rust with no such requirement. A host `libclang`
+> is also needed by bindgen when generating the FFI declarations.
+>
+> Cross-solver validation tests comparing `MilpSolver` against `HighsSolver`
+> on shared small MILP instances live in
+> `tests/highs_cross_validation.rs` (run with
+> `cargo test -p tpt-opt-milp --features highs`).
 
 ## Status
 
 The crate builds and its hand-crafted MILP examples in `tests/milp_api.rs`
-solve to optimality. It is **not yet** feature-complete with respect to the
-full spec checklist (see `todo.md` Phase 2): several cut families, primal
-heuristics, node-selection strategies, SOS/indicator/piecewise-linear support,
-and parallel tree search remain to be implemented.
+solve to optimality; the full Phase 2 checklist in `todo.md` is complete.
 
 ## Tying into `tpt-opt-core`
 

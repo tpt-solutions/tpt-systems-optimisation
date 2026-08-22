@@ -49,7 +49,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.84
         with:
           targets: thumbv6m-none-eabi
-      - run: cargo xtask no-std
+      # Only crates the spec marks no_std-compatible are checked here; the
+      # rest of the workspace requires std (HiGHS bindings, file IO, ...).
+      - run: cargo check -p tpt-opt-core --target thumbv6m-none-eabi --no-default-features
+      - run: cargo check -p tpt-opt-core --target thumbv6m-none-eabi --no-default-features --features alloc
 
   deny:
     name: cargo-deny
@@ -112,3 +115,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo bench --workspace --no-run
+
+  perf-report:
+    # Non-blocking performance report: solves a fixed instance set and prints
+    # timings for eyeballing regressions. Never gates merges — timing varies
+    # across runners.
+    name: perf report (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.84
+      - run: cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture

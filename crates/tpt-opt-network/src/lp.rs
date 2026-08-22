@@ -326,19 +326,31 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
 }
 
 /// Reduced-cost row for the current basis, used by the simplex loop.
-fn reduced_costs(tab: &[Vec<f64>], basis: &[usize], c: &[f64], m: usize, ncols: usize) -> Vec<f64> {
-    let mut r = vec![0.0f64; ncols + 1];
-    for j in 0..ncols {
-        r[j] = -c[j];
-    }
+///
+/// Returns the *true* reduced costs `d_j = c_j - c_B^T B^{-1} A_j`, so the
+/// caller's entering rule (`d_j < -eps`, Bland's rule) descends the objective
+/// for minimisation.
+fn reduced_costs(
+    tab: &[Vec<f64>],
+    basis: &[usize],
+    c: &[f64],
+    m: usize,
+    _ncols: usize,
+) -> Vec<f64> {
+    let mut r = vec![0.0f64; tab[0].len()];
+    let n = r.len() - 1;
+    r[..n].copy_from_slice(&c[..n]);
     for i in 0..m {
-        let bj = basis[i];
-        let f = r[bj];
-        if f != 0.0 {
+        let cbj = c[basis[i]];
+        if cbj != 0.0 {
             for (k, &tabik) in tab[i].iter().enumerate() {
-                r[k] -= f * tabik;
+                r[k] -= cbj * tabik;
             }
         }
+    }
+    // The basic columns must price out to exactly zero.
+    for i in 0..m {
+        r[basis[i]] = 0.0;
     }
     r
 }

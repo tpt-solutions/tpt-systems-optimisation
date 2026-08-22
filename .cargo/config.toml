@@ -1,0 +1,7 @@
+# Workspace-local cargo configuration.
+#
+# `cargo xtask <task>` runs the workspace task runner (xtask crate):
+# fmt / clippy / test / deny / no-std / check / all.
+
+[alias]
+xtask = "run --package xtask --"

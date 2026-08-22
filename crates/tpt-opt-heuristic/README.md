@@ -24,8 +24,22 @@ the seedable `tpt-math-prob` RNG.
   `tpt_opt_core::Solution` via `HeuristicResult::solution`.
 * Invalid configurations return `tpt_opt_core::OptError`.
 * The terminal condition is summarized with `tpt_opt_core::SolverStatus`.
-* `SimulatedAnnealing` additionally implements `tpt_opt_core::Solver` for
-  `tpt_opt_core::Model`.
+
+### Solver agnosticism (spec §4)
+
+Every heuristic implements `tpt_opt_core::solver::Solver<Model>` — the same
+`solve` / `set_parameter` / `warm_start` / `status` / `solution` contract as
+the MILP, LP, and CP backends. When driven through the trait, the solver
+evaluates the canonical model's objective (the closure passed to `new` is
+temporarily replaced by a view of the model), so one generic driver can run
+any backend interchangeably:
+
+| Solver | Notes |
+|--------|-------|
+| `SimulatedAnnealing` | Full trait support incl. warm start and seed parameter. |
+| `TabuSearch` | Full trait support incl. warm start and seed parameter. |
+| `ParticleSwarmOptimization` | Full trait support incl. warm start and seed parameter. |
+| `GeneticAlgorithm<Vec<f64>>` | Continuous genome; population-based, so warm-start hints are accepted and ignored. |
 
 ## Example
 

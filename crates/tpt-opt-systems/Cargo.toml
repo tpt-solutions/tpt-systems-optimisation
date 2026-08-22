@@ -7,13 +7,61 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
+description = "Umbrella crate for the tpt optimisation suite: one dependency, flat per-solver feature gates, unified errors, and convenience builders."
 keywords = ["optimization", "solver", "umbrella", "milp", "multi-objective"]
 categories = ["science::math", "algorithms"]
 documentation = "https://docs.rs/tpt-opt-systems"
 
+# docs.rs builds with every solver family enabled so the feature-gated
+# re-exports, builders, and conversion utilities are all documented.
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-opt-milp = { workspace = true, optional = true }
+    tpt-opt-minlp = { workspace = true, optional = true }
+    tpt-opt-network = { workspace = true, optional = true }
+    tpt-opt-cp = { workspace = true, optional = true }
+    tpt-opt-heuristic = { workspace = true, optional = true }
+    tpt-opt-multi = { workspace = true, optional = true }
+    tpt-opt-robust = { workspace = true, optional = true }
+    tpt-opt-decompose = { workspace = true, optional = true }
+    # Graph types for the network builder / flow-to-MILP conversion.
+    tpt-math-graph = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
 std = []
+
+# ---- One flat feature per solver crate -----------------------------------
+# Mixed-integer linear programming (branch-and-bound/cut).
+milp = ["dep:tpt-opt-milp"]
+# Mixed-integer nonlinear programming (outer approximation, GBD, SQP-B&B).
+minlp = ["dep:tpt-opt-minlp"]
+# Network flows, assignment, OPF, graph preprocessing.
+network = ["dep:tpt-opt-network", "dep:tpt-math-graph"]
+# Constraint programming (propagation + backtracking search).
+cp = ["dep:tpt-opt-cp"]
+# Metaheuristics (annealing, GA, tabu, PSO).
+heuristic = ["dep:tpt-opt-heuristic"]
+# Multi-objective / Pareto (NSGA-II/III, hypervolume, scalarisation).
+multi = ["dep:tpt-opt-multi"]
+# Optimisation under uncertainty (stochastic, robust, DRO, chance).
+robust = ["dep:tpt-opt-robust"]
+# Large-scale decomposition (Benders, Dantzig-Wolfe, branch-and-price,
+# Lagrangian).
+decompose = ["dep:tpt-opt-decompose"]
+
+# Convenience meta-feature enabling every solver family at once.
+all-solvers = [
+    "milp",
+    "minlp",
+    "network",
+    "cp",
+    "heuristic",
+    "multi",
+    "robust",
+    "decompose",
+]

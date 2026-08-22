@@ -1,7 +1,7 @@
 //! Simulated annealing (SA) with geometric / adaptive / reheating schedules.
 //!
-//! SA minimises or maximises an [`Objective`](crate::Objective) by a Metropolis
-//! acceptance rule over neighbours produced by a [`Neighborhood`](crate::Neighborhood).
+//! SA minimises or maximises an [`Objective`] by a Metropolis
+//! acceptance rule over neighbours produced by a [`Neighborhood`].
 //! Cooling schedules are configurable and the whole search is deterministic for
 //! a fixed seed.
 

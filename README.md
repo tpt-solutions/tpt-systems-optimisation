@@ -47,6 +47,81 @@ Each Tier 2 repo depends on `tpt-opt-systems` with only the features it needs:
 | `tpt-medical` | `milp`, `cp` |
 | `tpt-electronics` | `milp`, `network` |
 
+## Quick start
+
+Depend on the umbrella crate with just the solver families you need:
+
+```toml
+[dependencies]
+tpt-opt-systems = { version = "0.1", features = ["milp", "network"] }
+```
+
+```rust
+use tpt_opt_systems::{MilpBuilder, NetworkFlowBuilder};
+
+// A tiny MILP through the fluent builder…
+let mut b = MilpBuilder::new(0);
+let x = b.add_integer(0.0, 10.0);
+let sol = b.ge(&[x], &[1.0], 3.0).minimize(&[x], &[2.0]).solve().unwrap();
+assert!((sol.objective_value - 6.0).abs() < 1e-6);
+
+// …and a min-cost flow through its builder.
+let mut flow = NetworkFlowBuilder::new(2);
+flow.add_edge(0, 1, 5.0, 2.0);
+flow.supply(0, 3.0);
+flow.demand(1, 3.0);
+let routed = flow.solve().unwrap();
+assert!(routed.status.has_solution());
+```
+
+Runnable cross-crate programs live in [`examples/`](./examples) (excluded from
+the workspace so their all-features dependency never affects packaging):
+
+```text
+cargo run --manifest-path examples/Cargo.toml --example milp_knapsack
+cargo run --manifest-path examples/Cargo.toml --example flow_to_milp
+cargo run --manifest-path examples/Cargo.toml --example heuristic_pareto
+```
+
+## Tooling
+
+All task logic lives in the `xtask` crate; both `cargo` and `just` front it:
+
+```text
+cargo xtask fmt | clippy | test | deny | no-std | check | all   # or:
+just fmt / clippy / test / deny / no-std / check / all
+```
+
+CI (`.github/workflows/ci.yml`) runs rustfmt, clippy `-D warnings`, tests +
+doctests via cargo-nextest, cargo-deny, a no_std cross-check for
+`tpt-opt-core`, a feature-powerset sweep of the umbrella (cargo-hack), the
+eight Tier 2 feature combinations, an MSRV build at Rust 1.84, informational
+cargo-semver-checks, bench compile-smoke, and a non-blocking MILP performance
+report.
+
+## Testing
+
+Beyond per-crate unit/doctests, the workspace carries cross-cutting suites:
+
+- **Design principles** (`tpt-opt-milp/tests/design_principles.rs`,
+  `tpt-opt-cp/tests/custom_constraint.rs`,
+  `tpt-opt-systems/tests/solver_agnosticism.rs`) — degeneracy/bad-scaling
+  robustness, custom-constraint extensibility, seeded determinism,
+  parallel-vs-sequential equality.
+- **Fuzz suites** (`tests/fuzz.rs` in cp/network/minlp plus the MILP fuzz in
+  `design_principles.rs`) — seeded random instances with verified invariants
+  (soundness, completeness vs brute force, feasibility, cost consistency).
+- **Cross-validation** (`tpt-opt-milp/tests/highs_cross_validation.rs`) —
+  bundled engine vs HiGHS behind the opt-in `highs` feature.
+- **Performance report** (`tpt-opt-milp/tests/perf_regression.rs`) —
+  ignored-by-default timing report over fixed instances; run with
+  `cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture`.
+
+## Changelog convention
+
+Changelogs are **per crate** (`crates/<name>/CHANGELOG.md`, Keep-a-Changelog
+format); there is intentionally no root changelog.
+
 ## License
 
 Licensed under either of [MIT](./LICENSE-MIT) or [Apache-2.0](./LICENSE-APACHE)

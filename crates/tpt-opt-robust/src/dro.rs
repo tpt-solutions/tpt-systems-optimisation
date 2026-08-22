@@ -158,8 +158,7 @@ where
                     xm[j] -= h;
                     let mut slope = 0.0f64;
                     for (s, &p_s) in (0..s_count).zip(p.iter()) {
-                        slope +=
-                            p_s * (((self.cost)(s, &xp) - (self.cost)(s, &xm)) / (2.0 * h));
+                        slope += p_s * (((self.cost)(s, &xp) - (self.cost)(s, &xm)) / (2.0 * h));
                     }
                     co[j] = slope;
                     rhs -= slope * base[j];

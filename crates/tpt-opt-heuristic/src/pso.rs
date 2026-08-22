@@ -6,12 +6,15 @@
 //! (lbest), or a Von Neumann lattice.
 
 use tpt_math_prob::Xoshiro256;
-use tpt_opt_core::{OptError, Sense};
+use tpt_opt_core::{
+    Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
+};
 
 use crate::history::ConvergenceHistory;
 use crate::problem::{random_point, Objective};
 use crate::result::HeuristicResult;
 use crate::rng::Rng;
+use crate::ModelObjective;
 
 /// Inertia-weight schedule for PSO.
 #[derive(Debug, Clone, Copy)]
@@ -141,7 +144,7 @@ impl ParticleSwarmOptimization {
         self
     }
 
-    /// Stop early (reporting [`SolverStatus::Optimal`](tpt_opt_core::SolverStatus::Optimal))
+    /// Stop early (reporting [`SolverStatus::Optimal`])
     /// once the incumbent reaches `target`.
     pub fn with_target(mut self, target: f64) -> Self {
         self.target = Some(target);
@@ -332,6 +335,55 @@ impl ParticleSwarmOptimization {
             seed: self.seed,
             history,
         })
+    }
+}
+
+/// Solver-agnostic adapter: run PSO over a canonical [`Model`] by temporarily
+/// installing a [`ModelObjective`] view of the model.
+impl Solver<Model> for ParticleSwarmOptimization {
+    fn solve(&mut self, model: &Model) -> Result<Solution, OptError> {
+        let original =
+            std::mem::replace(&mut self.objective, Box::new(ModelObjective::new(model.clone())));
+        let result = ParticleSwarmOptimization::solve(self);
+        self.objective = original;
+        result.map(|r| r.solution())
+    }
+
+    fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
+        if let Some(seed) = param.seed {
+            self.seed = seed;
+            self.rng = Xoshiro256::new(seed);
+        }
+        Ok(())
+    }
+
+    fn warm_start(&mut self, warm: WarmStart) -> Result<(), OptError> {
+        if let Some(primal) = warm.primal {
+            self.initial = Some(primal);
+        }
+        Ok(())
+    }
+
+    fn status(&self) -> SolverStatus {
+        if self.history.is_empty() {
+            SolverStatus::Error
+        } else if self.target.is_some() {
+            SolverStatus::Optimal
+        } else {
+            SolverStatus::TimeLimit
+        }
+    }
+
+    fn solution(&self) -> Option<Solution> {
+        if self.history.is_empty() {
+            None
+        } else {
+            let best_val = self.history.best().unwrap_or(f64::INFINITY);
+            Some(
+                Solution::new(self.initial.clone().unwrap_or_default(), best_val, self.status())
+                    .with_iterations(self.iterations),
+            )
+        }
     }
 }
 

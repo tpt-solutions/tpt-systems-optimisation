@@ -16,8 +16,17 @@ documentation = "https://docs.rs/tpt-opt-core"
 [dependencies]
 tpt-math-linalg = { workspace = true }
 tpt-math-numeric = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"
 
 [features]
 default = ["std"]
 std = ["alloc"]
 alloc = []
+# Serialize/Deserialize derives on the canonical model, solution, parameters,
+# tolerances, and error types (warm-start caching, reproducible bug reports).
+# `default-features = false` keeps the crate no_std-compatible with the
+# feature on; note that JSON cannot represent ±inf bounds (see bounds.rs).
+serde = ["dep:serde"]

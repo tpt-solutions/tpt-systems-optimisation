@@ -1,0 +1,19 @@
+[package]
+name = "{{crate_name}}"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "{{description}}"
+readme = "README.md"
+keywords = ["optimization"]
+categories = ["science::math"]
+
+[dependencies]
+# Feature subset per the tpt-systems-optimisation README Tier 2 consumption
+# table (chosen at scaffold time; edit freely).
+tpt-opt-systems = { version = "0.1", features = [{{tpt_features}}] }
+
+[dev-dependencies]
+# none yet

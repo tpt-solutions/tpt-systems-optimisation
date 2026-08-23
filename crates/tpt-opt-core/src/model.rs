@@ -13,6 +13,7 @@ use crate::error::{InfeasibilityReport, OptError};
 
 /// Optimisation sense of an [`Objective`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Sense {
     /// Minimise the objective.
     Minimize,
@@ -22,6 +23,7 @@ pub enum Sense {
 
 /// A decision variable: an index plus its [`VarBound`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Variable {
     /// Stable index within the model's variable vector.
     pub index: usize,
@@ -50,6 +52,11 @@ impl Variable {
 }
 
 /// A single sparse linear constraint: `lower <= sum_i coeffs[i] * x[indices[i]] <= upper`.
+///
+/// Serde representation: the row bounds are `Option<f64>` — `None` encodes
+/// the corresponding ±infinity (as used by [`Constraint::le`]/[`Constraint::ge`]),
+/// so one-sided rows round-trip through formats without non-finite float
+/// support (JSON).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Constraint {
     /// Variable indices referenced by this constraint (sparse pattern).
@@ -128,8 +135,52 @@ impl Constraint {
     }
 }
 
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use super::Constraint;
+    use alloc::vec::Vec;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// Wire form: `None` row bounds encode the corresponding ±infinity.
+    #[derive(Serialize, Deserialize)]
+    struct Repr {
+        indices: Vec<usize>,
+        coeffs: Vec<f64>,
+        lower: Option<f64>,
+        upper: Option<f64>,
+        is_custom: bool,
+    }
+
+    impl Serialize for Constraint {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            Repr {
+                indices: self.indices.clone(),
+                coeffs: self.coeffs.clone(),
+                lower: self.lower.is_finite().then_some(self.lower),
+                upper: self.upper.is_finite().then_some(self.upper),
+                is_custom: self.is_custom,
+            }
+            .serialize(serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Constraint {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let r = Repr::deserialize(deserializer)?;
+            Ok(Constraint {
+                indices: r.indices,
+                coeffs: r.coeffs,
+                lower: r.lower.unwrap_or(f64::NEG_INFINITY),
+                upper: r.upper.unwrap_or(f64::INFINITY),
+                is_custom: r.is_custom,
+            })
+        }
+    }
+}
+
 /// A linear objective: `sense . (constant + sum_i coeffs[i]*x[indices[i]])`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Objective {
     /// Minimise or maximise.
     pub sense: Sense,
@@ -164,7 +215,14 @@ impl Objective {
 }
 
 /// The canonical optimisation model: variables, linear constraints, objective.
+///
+/// With the optional `serde` feature the whole model round-trips through any
+/// serde format — infinite variable bounds and one-sided row bounds are
+/// encoded as `null` on the wire (see [`Constraint`] and
+/// [`crate::bounds::Bound`]) — enabling warm-start caching and reproducible
+/// bug reports.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Model {
     /// Total number of variables (including any not explicitly added).
     pub num_vars: usize,

@@ -19,8 +19,10 @@
 //! - Modelling extras: SOS1/SOS2 sets ([`sos`]), indicator constraints
 //!   ([`indicator`]), and piecewise-linear objectives ([`piecewise`]).
 //! - Deterministic parallel tree search via `.with_threads(n > 1)`.
+//! - MPS / CPLEX-LP file-format import and export ([`format`]).
 
 pub mod cuts;
+pub mod format;
 pub mod gomory;
 #[cfg(feature = "highs")]
 pub mod highs_solver;
@@ -31,6 +33,7 @@ pub mod piecewise;
 pub mod sos;
 
 pub use cuts::{add_clique_cuts, add_cover_cuts, add_mir_cuts};
+pub use format::{read_lp, read_mps, solve_parsed, write_lp, write_mps};
 pub use gomory::{
     add_gomory_cuts, add_lift_and_project_cuts, gomory_cuts, lift_and_project_cuts, TableauCut,
 };

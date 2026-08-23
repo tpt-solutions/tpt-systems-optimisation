@@ -25,11 +25,14 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 
 use tpt_opt_core::{
     model::{Constraint, Model, Sense},
+    progress::{ProgressAction, ProgressCallback, ProgressEvent},
     solver::{Solution, SolveParameters, Solver, SolverStatus, WarmStart},
     tolerance::Tolerances,
     OptError,
@@ -69,7 +72,6 @@ pub enum NodeSelection {
 }
 
 /// Builder / solver for mixed-integer linear programs.
-#[derive(Debug, Clone)]
 pub struct MilpSolver {
     params: SolveParameters,
     branching: BranchingRule,
@@ -82,12 +84,67 @@ pub struct MilpSolver {
     sos_sets: Vec<SosSet>,
     indicators: Vec<IndicatorConstraint>,
     piecewise: Option<PiecewiseObjective>,
+    /// Optional progress callback (see [`MilpSolver::with_progress_callback`]).
+    /// Shared through an `Arc<Mutex<..>>` so parallel workers can emit events;
+    /// *not* inherited by clones (nested heuristic sub-solves stay silent).
+    progress: Option<Arc<Mutex<Box<ProgressCallback>>>>,
+    /// Set when the progress callback (or an internal limit) requests an
+    /// early stop; shared with clones so nested solves shut down promptly.
+    abort_flag: Arc<AtomicBool>,
     // Runtime state (result of the last solve).
     incumbent_obj: Option<f64>,
     incumbent_x: Option<Vec<f64>>,
     last_status: SolverStatus,
     last_nodes: usize,
     pending_warm: Option<Vec<f64>>,
+}
+
+impl Clone for MilpSolver {
+    fn clone(&self) -> Self {
+        Self {
+            params: self.params,
+            branching: self.branching,
+            selection: self.selection,
+            use_cuts: self.use_cuts,
+            cut_rounds: self.cut_rounds,
+            seed: self.seed,
+            node_limit: self.node_limit,
+            nested: self.nested,
+            sos_sets: self.sos_sets.clone(),
+            indicators: self.indicators.clone(),
+            piecewise: self.piecewise.clone(),
+            // Deliberately dropped: nested sub-solves must not spam the
+            // user's callback (or abort it mid-heuristic).
+            progress: None,
+            abort_flag: Arc::clone(&self.abort_flag),
+            incumbent_obj: self.incumbent_obj,
+            incumbent_x: self.incumbent_x.clone(),
+            last_status: self.last_status,
+            last_nodes: self.last_nodes,
+            pending_warm: self.pending_warm.clone(),
+        }
+    }
+}
+
+impl core::fmt::Debug for MilpSolver {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MilpSolver")
+            .field("params", &self.params)
+            .field("branching", &self.branching)
+            .field("selection", &self.selection)
+            .field("use_cuts", &self.use_cuts)
+            .field("cut_rounds", &self.cut_rounds)
+            .field("seed", &self.seed)
+            .field("node_limit", &self.node_limit)
+            .field("nested", &self.nested)
+            .field("sos_sets", &self.sos_sets)
+            .field("indicators", &self.indicators)
+            .field("piecewise", &self.piecewise)
+            .field("has_progress_callback", &self.progress.is_some())
+            .field("last_status", &self.last_status)
+            .field("last_nodes", &self.last_nodes)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for MilpSolver {
@@ -111,6 +168,8 @@ impl MilpSolver {
             sos_sets: Vec::new(),
             indicators: Vec::new(),
             piecewise: None,
+            progress: None,
+            abort_flag: Arc::new(AtomicBool::new(false)),
             incumbent_obj: None,
             incumbent_x: None,
             last_status: SolverStatus::Error,
@@ -169,6 +228,20 @@ impl MilpSolver {
     /// [`SolverStatus::TimeLimit`] with the best incumbent found.
     pub fn with_node_limit(mut self, nodes: usize) -> Self {
         self.node_limit = Some(nodes);
+        self
+    }
+
+    /// Register a progress callback invoked at coarse checkpoints (root LP,
+    /// root heuristics, every 16 explored nodes, and on each new incumbent).
+    ///
+    /// Returning [`ProgressAction::Abort`] from the callback stops the search
+    /// as soon as possible — including in parallel mode and inside nested
+    /// heuristic sub-solves — and the solve reports
+    /// [`SolverStatus::TimeLimit`] with the best incumbent found so far.
+    /// Events are serialised through an internal lock, so a `FnMut` callback
+    /// is safe even when worker threads emit concurrently.
+    pub fn with_progress_callback(mut self, cb: Box<ProgressCallback>) -> Self {
+        self.progress = Some(Arc::new(Mutex::new(cb)));
         self
     }
 
@@ -364,7 +437,10 @@ impl MilpSolver {
             };
             outcome.nodes_explored += 1;
 
-            if self.timed_out(start) || self.limit_reached(outcome.nodes_explored) {
+            if self.timed_out(start)
+                || self.limit_reached(outcome.nodes_explored)
+                || self.abort_flag.load(AtomicOrdering::Relaxed)
+            {
                 outcome.timed_out = true;
                 break;
             }
@@ -444,12 +520,23 @@ impl MilpSolver {
             if frac.is_empty() {
                 // Integral solution -> candidate incumbent (SOS already OK).
                 if feasible_with_sos(sos, model, &lp.x, &node, tol.feasibility) {
-                    outcome.inc.consider(
+                    let improved = outcome.inc.consider(
                         lp.objective,
                         lp.x.clone(),
                         sense,
                         self.params.absolute_gap,
                     );
+                    if improved
+                        && !self.emit_progress(
+                            outcome.nodes_explored,
+                            outcome.inc.obj,
+                            frontier_bound(&heap, sense),
+                            start,
+                        )
+                    {
+                        outcome.timed_out = true;
+                        break;
+                    }
                 }
                 continue;
             }
@@ -502,6 +589,20 @@ impl MilpSolver {
                 heur_rins(self, model, sense, &lp.x, &snap, start, &mut outcome.inc);
             }
 
+            // Periodic progress emission (same cadence as the heuristics so a
+            // callback sees fresh incumbents within at most 16 nodes).
+            if outcome.nodes_explored % 16 == 0
+                && !self.emit_progress(
+                    outcome.nodes_explored,
+                    outcome.inc.obj,
+                    frontier_bound(&heap, sense),
+                    start,
+                )
+            {
+                outcome.timed_out = true;
+                break;
+            }
+
             // 5. Create children.
             let fv = lp.x[bv];
             let down = fv.floor();
@@ -552,6 +653,28 @@ impl MilpSolver {
 
     fn limit_reached(&self, nodes: usize) -> bool {
         self.node_limit.is_some_and(|lim| nodes >= lim)
+    }
+
+    /// Deliver a [`ProgressEvent`] to the registered callback, if any.
+    /// Returns `false` when the callback requested an abort (the shared flag
+    /// is set first, so parallel workers and nested sub-solves stop too).
+    /// A poisoned callback lock is recovered rather than propagated: losing
+    /// one event must not fail an otherwise healthy solve.
+    fn emit_progress(
+        &self,
+        iterations: usize,
+        incumbent: Option<f64>,
+        bound: Option<f64>,
+        start: Instant,
+    ) -> bool {
+        let Some(cb) = &self.progress else { return true };
+        let ev = ProgressEvent { iterations, incumbent, bound, elapsed: start.elapsed() };
+        let action = cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner())(&ev);
+        if action == ProgressAction::Abort {
+            self.abort_flag.store(true, AtomicOrdering::Relaxed);
+            return false;
+        }
+        true
     }
 
     /// Fractional integer variables sorted by decreasing fractionality
@@ -658,6 +781,18 @@ impl MilpSolver {
 /// The bound a node inherited from its parent (raw objective).
 fn parent_obj_of(node: &Node) -> f64 {
     node.bound
+}
+
+/// Best remaining frontier bound for progress reporting: the heap top's key
+/// converted back to the raw-objective convention (`None` under depth-first
+/// selection, where no global bound is maintained). Under
+/// [`NodeSelection::BestEstimate`] the value includes pseudo-cost degradation,
+/// i.e. it is an estimate rather than a proven bound.
+fn frontier_bound(heap: &BinaryHeap<Node>, sense: Sense) -> Option<f64> {
+    heap.peek().map(|n| match sense {
+        Sense::Minimize => -n.key,
+        Sense::Maximize => n.key,
+    })
 }
 
 /// Heap priority for a freshly created child node. For [`NodeSelection::
@@ -1045,6 +1180,9 @@ impl Solver<Model> for MilpSolver {
         let sense = model.objective.sense;
         let orig_n = model.num_vars;
 
+        // A fresh solve clears any abort left over from a previous one.
+        self.abort_flag.store(false, AtomicOrdering::Relaxed);
+
         // ---- Build the working model --------------------------------------
         let mut work = model.clone();
 
@@ -1142,6 +1280,9 @@ impl Solver<Model> for MilpSolver {
             return Ok(Solution::new(vec![0.0; orig_n], 0.0, SolverStatus::Unbounded));
         }
 
+        // ---- Root LP progress checkpoint --------------------------------------
+        self.emit_progress(0, inc.obj, Some(root.sol.objective), start);
+
         // ---- Root heuristics -------------------------------------------------
         heur_rounding(
             &work,
@@ -1161,6 +1302,11 @@ impl Solver<Model> for MilpSolver {
                 heur_local_branching(self, &work, sense, &snap0, start, &mut inc);
             }
         }
+
+        // ---- Root-heuristic progress checkpoint -------------------------------
+        // An abort here skips the tree search entirely; the finalise step then
+        // reports TimeLimit with whatever warm-start/root incumbents exist.
+        self.emit_progress(0, inc.obj, Some(root.sol.objective), start);
 
         // ---- Initial node -----------------------------------------------------
         let root_key = match sense {
@@ -1184,7 +1330,10 @@ impl Solver<Model> for MilpSolver {
 
         // ---- Dispatch: sequential or deterministic parallel -------------------
         let threads = self.params.threads.max(1);
-        let outcome = if threads > 1 && !self.nested {
+        let aborted_at_root = self.abort_flag.load(AtomicOrdering::Relaxed);
+        let outcome = if aborted_at_root {
+            SearchOutcome { inc, timed_out: true, ..SearchOutcome::default() }
+        } else if threads > 1 && !self.nested {
             self.solve_parallel(&work, sense, &int_vars, &all_sos, root_node, start, inc, threads)
         } else {
             self.run_search(&work, sense, &int_vars, &all_sos, vec![root_node], inc, start)
@@ -1261,10 +1410,13 @@ impl MilpSolver {
         mut inc: Incumbent,
         threads: usize,
     ) -> SearchOutcome {
-        // Breadth-first expand the frontier until >= threads nodes.
+        // Breadth-first expand the frontier until >= threads nodes. Integral
+        // or infeasible expansion results are dropped rather than pushed, so
+        // the frontier can drain below `threads` (or empty entirely) — stop
+        // as soon as that happens instead of popping from an empty vector.
         let mut frontier: Vec<Node> = vec![root_node];
         let tol = self.params.tolerances;
-        while frontier.len() < threads {
+        while !frontier.is_empty() && frontier.len() < threads {
             // Take the shallowest node (FIFO) and expand it.
             let node = frontier.remove(0);
             let lp = solve_lp(work, &node.lb, &node.ub, tol);

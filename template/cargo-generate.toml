@@ -1,0 +1,13 @@
+[template]
+description = "Tier 2 consumer crate scaffolded against tpt-opt-systems"
+include = ["{{crate_name}}"]
+exclude = ["target", "Cargo.lock"]
+
+[placeholders]
+description = { type = "string", prompt = "One-line crate description for crates.io", default = "A domain optimisation crate built on tpt-opt-systems." }
+# Rendered verbatim inside `features = [...]`; supply a quoted,
+# comma-separated list, e.g. "milp", "network".
+tpt_features = { type = "string", prompt = "Quoted tpt-opt-systems features (see the root README Tier 2 table)", default = '"milp"' }
+
+[hooks]
+# none — keep the template dependency-free

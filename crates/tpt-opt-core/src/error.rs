@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 
 /// Diagnostic report describing *why* a model was found infeasible.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InfeasibilityReport {
     /// Indices of constraints that cannot be simultaneously satisfied.
     pub violated_constraints: Vec<usize>,
@@ -43,7 +44,11 @@ impl InfeasibilityReport {
 }
 
 /// Primary error type returned across the optimisation workspace.
+///
+/// With the optional `serde` feature errors serialise too, so a failed solve
+/// can be captured (model + parameters + error) and replayed later.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum OptError {
     /// The model has no feasible solution.
     Infeasible(InfeasibilityReport),

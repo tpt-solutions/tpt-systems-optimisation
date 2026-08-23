@@ -44,7 +44,9 @@ tpt-math-optimize-general = { path = "deps/tpt-math-optimize-general", version =
 
 # Common external dependencies
 thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
+# `default-features = false` keeps dependents no_std-compatible; members may
+# opt back into std explicitly if ever needed.
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [profile.release]
 opt-level = 3

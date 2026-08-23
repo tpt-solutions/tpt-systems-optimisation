@@ -15,3 +15,8 @@ Cargo.lock
 # Local config
 .kilo/
 .kilocode/
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)

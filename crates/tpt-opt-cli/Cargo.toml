@@ -1,0 +1,25 @@
+[package]
+name = "tpt-opt-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Small CLI that reads an MPS or CPLEX-LP model, solves it with tpt-opt-milp, and prints the solution."
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["optimization", "milp", "cli", "mps", "lp"]
+categories = ["command-line-utilities", "science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-cli"
+
+[[bin]]
+name = "tpt-opt-cli"
+path = "src/main.rs"
+
+[dependencies]
+tpt-opt-core = { workspace = true }
+tpt-opt-milp = { workspace = true }
+
+[features]
+default = []

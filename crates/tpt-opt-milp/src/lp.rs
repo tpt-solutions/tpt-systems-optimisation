@@ -127,7 +127,13 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     let mut lp_cost_raw: Vec<f64> = Vec::new();
     let mut col_to_orig: Vec<Option<usize>> = Vec::new();
     let mut struct_ubs: Vec<Option<f64>> = Vec::new();
-    let mut obj_constant = 0.0;
+    // The model's fixed objective offset must participate in every reported
+    // objective: branch-and-bound compares node bounds against heuristic
+    // incumbents, and those incumbents are scored with `Objective::eval`
+    // (constant included). Starting the accumulator at the model constant
+    // keeps both conventions identical (the HiGHS binding restores the same
+    // constant after its solve).
+    let mut obj_constant = model.objective.constant;
     let mut free_ub_rows: Vec<(usize, usize, f64)> = Vec::new();
 
     for j in 0..n {
@@ -700,13 +706,17 @@ fn recover_solution(
     (x, obj, dual, reduced_costs)
 }
 
+/// Objective coefficient of variable `j`. Sparse entries may reference the
+/// same variable more than once (e.g. scalarisations that sum overlapping
+/// objectives); duplicates must *accumulate*, not resolve to the first match.
 fn obj_coeff(obj: &Objective, j: usize) -> f64 {
+    let mut total = 0.0;
     for (&i, &c) in obj.indices.iter().zip(obj.coeffs.iter()) {
         if i == j {
-            return c;
+            total += c;
         }
     }
-    0.0
+    total
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -975,5 +985,46 @@ mod tests {
             }
         }
         assert!(sol.objective >= best - 1e-6, "lp {} < brute {best}", sol.objective);
+    }
+
+    #[test]
+    fn duplicate_objective_entries_accumulate() {
+        // Sparse objectives may reference the same variable twice (weighted
+        // sums of overlapping objectives do exactly that). The LP must sum
+        // the duplicate coefficients, not take the first match.
+        let mut m = Model::new(1);
+        m.variables[0].bound = VarBound::continuous(0.0, 3.0);
+        // max x0 expressed as two +1 entries: effective coefficient 2.
+        m.set_objective(Objective {
+            sense: Sense::Maximize,
+            indices: vec![0, 0],
+            coeffs: vec![1.0, 1.0],
+            constant: 0.0,
+        });
+        let sol = solve_lp(&m, &[0.0], &[3.0], tol());
+        assert_eq!(sol.status, LpStatus::Optimal);
+        assert!(
+            (sol.objective - 6.0).abs() < 1e-6,
+            "2*x0 at x0=3 must be 6, got {}",
+            sol.objective
+        );
+
+        // Cancelling duplicates: coefficient 1 + (-1) = 0 -> objective is
+        // identically zero and every feasible point is optimal.
+        let mut m = Model::new(1);
+        m.variables[0].bound = VarBound::continuous(0.0, 3.0);
+        m.set_objective(Objective {
+            sense: Sense::Minimize,
+            indices: vec![0, 0],
+            coeffs: vec![1.0, -1.0],
+            constant: 7.5,
+        });
+        let sol = solve_lp(&m, &[0.0], &[3.0], tol());
+        assert_eq!(sol.status, LpStatus::Optimal);
+        assert!(
+            (sol.objective - 7.5).abs() < 1e-6,
+            "zero linear part must leave only the constant, got {}",
+            sol.objective
+        );
     }
 }

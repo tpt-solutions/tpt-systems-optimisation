@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a correctness, build or documentation problem in a tpt-opt-* crate.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. This repository follows an
+        **issues-first** workflow (see CONTRIBUTING.md) — a tracked issue is
+        the entry point for any subsequent PR.
+  - type: dropdown
+    id: crate
+    attributes:
+      label: Affected crate
+      options:
+        - tpt-opt-core
+        - tpt-opt-milp
+        - tpt-opt-minlp
+        - tpt-opt-network
+        - tpt-opt-cp
+        - tpt-opt-heuristic
+        - tpt-opt-multi
+        - tpt-opt-robust
+        - tpt-opt-decompose
+        - tpt-opt-systems
+        - other / workspace-level
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include a minimal reproducer (code snippet or example name) and the observed output.
+      placeholder: Expected X, got Y when ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: For solver-correctness bugs, state the known optimum/status you expected and how it was derived.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Crate version or git commit hash.
+    validations:
+      required: true
+  - type: dropdown
+    id: features
+    attributes:
+      label: Feature flags in use
+      options:
+        - default only
+        - all-solvers
+        - custom subset (list in description)
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I reproduced this on the latest master commit.
+          required: true
+        - label: This is not a security vulnerability (those go to security@tpt.solutions per SECURITY.md).
+          required: true

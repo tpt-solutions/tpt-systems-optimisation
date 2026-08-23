@@ -25,6 +25,11 @@
 //!   [`tolerance::Tolerances`] and are configurable.
 //! - **Extensibility** — [`custom::CustomConstraint`] lets users plug novel
 //!   constraints into any solver.
+//!
+//! Optional capabilities: with the `serde` feature the canonical types
+//! serialise for warm-start caching and reproducible bug reports; the
+//! [`progress`] module defines the progress-callback contract used by solvers
+//! that support live reporting and early termination.
 
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -39,6 +44,7 @@ pub mod custom;
 pub mod error;
 pub mod matrix;
 pub mod model;
+pub mod progress;
 pub mod solver;
 pub mod tolerance;
 
@@ -47,5 +53,6 @@ pub use custom::CustomConstraint;
 pub use error::{InfeasibilityReport, OptError};
 pub use matrix::{model_to_csc, model_to_csr, ConstraintMatrix};
 pub use model::{Constraint, Model, Objective, Sense, Variable};
+pub use progress::{ProgressAction, ProgressCallback, ProgressEvent};
 pub use solver::{Solution, SolveParameters, Solver, SolverStatus, Verbosity, WarmStart};
 pub use tolerance::Tolerances;

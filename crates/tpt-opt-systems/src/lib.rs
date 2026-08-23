@@ -47,22 +47,31 @@
 //! tpt-opt-systems = { version = "0.1", features = ["milp", "network"] }
 //! ```
 //!
+//! Each block below is feature-gated so the example also compiles (as a
+//! no-op) on an empty-feature build.
+//!
 //! ```rust,no_run
-//! use tpt_opt_systems::{MilpBuilder, NetworkFlowBuilder};
+//! #[cfg(feature = "milp")]
+//! {
+//!     // A tiny MILP through the builder…
+//!     use tpt_opt_systems::MilpBuilder;
+//!     let mut b = MilpBuilder::new(0);
+//!     let x = b.add_integer(0.0, 10.0);
+//!     let sol = b.ge(&[x], &[1.0], 3.0).minimize(&[x], &[2.0]).solve().unwrap();
+//!     assert!((sol.objective_value - 6.0).abs() < 1e-6);
+//! }
 //!
-//! // A tiny MILP through the builder…
-//! let mut b = MilpBuilder::new(0);
-//! let x = b.add_integer(0.0, 10.0);
-//! let sol = b.ge(&[x], &[1.0], 3.0).minimize(&[x], &[2.0]).solve().unwrap();
-//! assert!((sol.objective_value - 6.0).abs() < 1e-6);
-//!
-//! // …and a min-cost flow through its builder.
-//! let mut flow = NetworkFlowBuilder::new(2);
-//! flow.add_edge(0, 1, 5.0, 2.0);
-//! flow.supply(0, 3.0);
-//! flow.demand(1, 3.0);
-//! let routed = flow.solve().unwrap();
-//! assert!(routed.status.has_solution());
+//! #[cfg(feature = "network")]
+//! {
+//!     // …and a min-cost flow through its builder.
+//!     use tpt_opt_systems::NetworkFlowBuilder;
+//!     let mut flow = NetworkFlowBuilder::new(2);
+//!     flow.add_edge(0, 1, 5.0, 2.0);
+//!     flow.supply(0, 3.0);
+//!     flow.demand(1, 3.0);
+//!     let routed = flow.solve().unwrap();
+//!     assert!(routed.status.has_solution());
+//! }
 //! ```
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -119,8 +128,9 @@ pub use tpt_opt_network as network;
 #[cfg(feature = "network")]
 pub use tpt_opt_network::{
     ac_opf, biconnected_components, bridges, dc_opf, has_cycle, hungarian, min_cost_flow,
-    network_simplex, sc_opf, AcOpfResult, AssignmentResult, Bus, DcOpfResult, DynamicNetwork,
-    DynamicNetworkResult, Generator, Line, MinCostFlowResult, Network, ScOpfResult,
+    network_simplex, sc_opf, series_parallel_check, AcOpfResult, AssignmentResult, Bus,
+    DcOpfResult, DynamicNetwork, DynamicNetworkResult, Generator, Line, MinCostFlowResult, Network,
+    ScOpfResult, SeriesParallelReport,
 };
 
 /// Constraint programming (feature `cp`).

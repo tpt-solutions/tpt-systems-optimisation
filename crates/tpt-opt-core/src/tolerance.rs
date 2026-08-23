@@ -7,6 +7,7 @@
 
 /// Numeric tolerances used across the solver crates.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tolerances {
     /// Integrality tolerance: a value within this of an integer is integral.
     pub integrality: f64,

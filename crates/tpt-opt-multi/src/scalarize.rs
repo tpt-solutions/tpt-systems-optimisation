@@ -268,6 +268,129 @@ impl LinearMultiObjective {
     pub fn evaluate(&self, x: &[f64]) -> Vec<f64> {
         self.objectives.iter().map(|o| o.constant + dot(&o.coeffs, x)).collect()
     }
+
+    /// Compute the pay-off table: minimise each objective individually and
+    /// record the full objective vector at each single-objective optimum.
+    ///
+    /// Returns `(ideal, nadir)` where `ideal[j]` is the best value ever seen
+    /// for objective `j` (a valid utopia point for the Tchebycheff methods)
+    /// and `nadir[j]` is the worst value observed for `j` across those
+    /// optima — the classic pay-off-table nadir estimate. For non-convex
+    /// fronts the nadir estimate can under-approximate the true nadir; it is
+    /// used here only to *normalise* deviations, so a mild underestimate is
+    /// harmless.
+    pub fn payoff_table(&self) -> Result<(Vec<f64>, Vec<f64>), OptError> {
+        let m = self.objectives.len();
+        let mut ideal = vec![f64::INFINITY; m];
+        let mut nadir = vec![f64::NEG_INFINITY; m];
+        for i in 0..m {
+            let mut w = vec![0.0; m];
+            w[i] = 1.0;
+            let model = self.weighted_sum_model(&w);
+            let mut solver = MilpSolver::new();
+            let sol = solver.solve(&model)?;
+            let f = self.evaluate(&sol.primal);
+            for (j, &fv) in f.iter().enumerate() {
+                ideal[j] = ideal[j].min(fv);
+                nadir[j] = nadir[j].max(fv);
+            }
+        }
+        Ok((ideal, nadir))
+    }
+
+    /// Adaptive weighted-Tchebycheff scalarisation.
+    ///
+    /// Repeatedly solves the augmented Tchebycheff problem while adapting the
+    /// weights toward a balanced achievement: after every solve the normalised
+    /// deviation of each objective at the current point,
+    /// `d_i = (f_i(x) - z_i) / range_i` with `range_i = nadir_i - z_i`, is
+    /// compared to its mean, and weights are multiplicatively updated as
+    /// `w_i <- w_i * exp(eta * (d_i - mean(d)))` (then renormalised). Objectives
+    /// that lag behind the others gain weight, so the iteration drifts away
+    /// from extreme points toward the knee of the Pareto front — unlike a
+    /// fixed weight vector, which commits to whatever region its skew selects.
+    ///
+    /// Arguments:
+    /// - `weights0`: strictly positive initial weights (any scale; normalised
+    ///   internally);
+    /// - `iterations`: number of solve/adapt rounds (`>= 1`);
+    /// - `eta`: adaptation rate (`0` disables adaptation; `0.25 ..= 1.0` is a
+    ///   sensible range);
+    /// - `rho`: augmentation coefficient passed to
+    ///   [`Self::augmented_tchebycheff_model`] (excludes weakly dominated
+    ///   points).
+    ///
+    /// The ideal/nadir reference points come from [`Self::payoff_table`].
+    /// Among the visited points the one with the smallest maximum normalised
+    /// deviation is returned together with its full objective vector — so the
+    /// result is monotone in the balanced-achievement sense even if the final
+    /// iterate overshoots.
+    ///
+    /// Deterministic: no randomness anywhere in the loop.
+    pub fn solve_weighted_tchebycheff_adaptive(
+        &self,
+        weights0: &[f64],
+        iterations: usize,
+        eta: f64,
+        rho: f64,
+    ) -> Result<(Vec<f64>, Vec<f64>), OptError> {
+        assert_eq!(weights0.len(), self.objectives.len());
+        assert!(weights0.iter().all(|&w| w > 0.0), "initial weights must be strictly positive");
+        assert!(iterations >= 1, "need at least one iteration");
+        assert!(eta >= 0.0, "adaptation rate must be non-negative");
+        assert!(rho > 0.0, "augmentation coefficient must be positive");
+
+        let m = self.objectives.len();
+        let n = self.num_vars();
+        let (z, nadir) = self.payoff_table()?;
+        // Normalisation ranges, guarded against flat objectives.
+        let range: Vec<f64> = (0..m).map(|j| (nadir[j] - z[j]).max(1e-12)).collect();
+
+        // Start from a normalised copy of the initial weights.
+        let total: f64 = weights0.iter().sum();
+        let mut w: Vec<f64> = weights0.iter().map(|&wi| wi / total).collect();
+
+        let mut best: Option<(f64, Vec<f64>, Vec<f64>)> = None;
+        for _ in 0..iterations {
+            let model = self.augmented_tchebycheff_model(&w, &z, rho);
+            let mut solver = MilpSolver::new();
+            let sol = solver.solve(&model)?;
+            let x = sol.primal[..n].to_vec();
+            let f = self.evaluate(&x);
+
+            // Balanced-achievement score: max normalised deviation.
+            let dev: Vec<f64> = (0..m).map(|j| (f[j] - z[j]) / range[j]).collect();
+            let ach = dev.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            if best.is_none() || ach < best.as_ref().unwrap().0 {
+                best = Some((ach, x, f));
+            }
+
+            // Multiplicative weight adaptation toward balance.
+            let mean = dev.iter().sum::<f64>() / m as f64;
+            for j in 0..m {
+                w[j] *= (eta * (dev[j] - mean)).exp();
+            }
+            let total: f64 = w.iter().sum();
+            if total <= 0.0 || !total.is_finite() {
+                w = vec![1.0 / m as f64; m]; // numerical safety net
+            } else {
+                for wj in w.iter_mut() {
+                    *wj /= total;
+                }
+            }
+        }
+
+        let (_, x, f) = best.expect("at least one iteration ran");
+        Ok((x, f))
+    }
+
+    /// Convenience wrapper for [`Self::solve_weighted_tchebycheff_adaptive`]
+    /// with uniform initial weights and default dynamics (8 iterations,
+    /// `eta = 0.5`, `rho = 1e-2`).
+    pub fn solve_adaptive_tchebycheff(&self) -> Result<(Vec<f64>, Vec<f64>), OptError> {
+        let m = self.objectives.len();
+        self.solve_weighted_tchebycheff_adaptive(&vec![1.0; m], 8, 0.5, 1e-2)
+    }
 }
 
 /// Convenience constructor for a single linear objective term.
@@ -290,6 +413,17 @@ pub fn tchebycheff(
     ideal: &[f64],
 ) -> Result<Vec<f64>, OptError> {
     let (_, f) = prob.solve_tchebycheff(weights, ideal)?;
+    Ok(f)
+}
+
+/// Solve an adaptive weighted-Tchebycheff scalarisation and return the
+/// resulting objective vector.
+///
+/// Convenience wrapper around
+/// [`LinearMultiObjective::solve_weighted_tchebycheff_adaptive`] with uniform
+/// initial weights.
+pub fn adaptive_tchebycheff(prob: &LinearMultiObjective) -> Result<Vec<f64>, OptError> {
+    let (_, f) = prob.solve_adaptive_tchebycheff()?;
     Ok(f)
 }
 
@@ -418,5 +552,91 @@ mod tests {
             vec![(0.0, 2.0), (0.0, 2.0)],
         );
         let _ = prob.solve_tchebycheff(&[1.0, 0.0], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn payoff_table_ideal_and_nadir_on_coupled_front() {
+        // Coupled front f0 = a, f1 = 1 - a on [0,1]^2: minimising f0 pins
+        // a = 0 giving the row (0, 1); minimising f1 pins a = 1 giving (1, 0).
+        // Ideal is therefore (0, 0) and the pay-off-table nadir is (1, 1),
+        // both uniquely determined (no degenerate vertex choice).
+        let prob = LinearMultiObjective::new(
+            vec![term(vec![1.0, 0.0], 0.0), term(vec![-1.0, 0.0], 1.0)],
+            vec![(0.0, 1.0), (0.0, 1.0)],
+        );
+        let (z, nadir) = prob.payoff_table().unwrap();
+        assert!(z[0].abs() < 1e-6 && z[1].abs() < 1e-6);
+        assert!((nadir[0] - 1.0).abs() < 1e-6 && (nadir[1] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn adaptive_tchebycheff_escapes_skewed_extreme() {
+        // Coupled front f0 = a, f1 = 1 - a on [0,1]^2. A heavily skewed fixed
+        // Tchebycheff weight (999, 1) pins the solution near the f0-ideal
+        // extreme (a ~ 0.001). The adaptive loop must rebalance and move
+        // substantially toward the interior/knee.
+        let coupled = LinearMultiObjective::new(
+            vec![term(vec![1.0, 0.0], 0.0), term(vec![-1.0, 0.0], 1.0)],
+            vec![(0.0, 1.0), (0.0, 1.0)],
+        );
+        let (_, f_fixed) = coupled.solve_tchebycheff(&[999.0, 1.0], &[0.0, 0.0]).unwrap();
+        assert!(f_fixed[0] < 0.05, "fixed skewed weights should sit at the extreme");
+
+        // The weight ratio must shrink by ~e^{-eta} per round while the point
+        // sits at the extreme, so crossing to balance takes ~ln(999)/eta
+        // rounds; 16 rounds at eta = 1 comfortably suffice, and the
+        // best-achievement tracker holds the most balanced iterate visited.
+        let (_, f_adaptive) =
+            coupled.solve_weighted_tchebycheff_adaptive(&[999.0, 1.0], 16, 1.0, 1e-2).unwrap();
+        assert!(
+            f_adaptive[0] > 0.2 && f_adaptive[1] > 0.2,
+            "adaptive run should leave the extreme, got {f_adaptive:?}"
+        );
+        // And it must remain on the Pareto front of this coupled problem.
+        assert!((f_adaptive[0] + f_adaptive[1] - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn adaptive_tchebycheff_is_deterministic() {
+        let prob = LinearMultiObjective::new(
+            vec![
+                term(vec![1.0, 2.0, 0.5], 1.0),
+                term(vec![3.0, 1.0, 1.0], 0.5),
+                term(vec![0.5, 0.5, 2.0], 0.25),
+            ],
+            vec![(0.0, 4.0), (0.0, 4.0), (0.0, 4.0)],
+        );
+        let a = prob.solve_weighted_tchebycheff_adaptive(&[2.0, 1.0, 1.0], 8, 0.5, 1e-2).unwrap();
+        let b = prob.solve_weighted_tchebycheff_adaptive(&[2.0, 1.0, 1.0], 8, 0.5, 1e-2).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn adaptive_tchebycheff_zero_eta_matches_plain_augmented() {
+        // With eta = 0 the weights never change, so the adaptive loop reduces
+        // to repeated augmented-Tchebycheff solves with fixed weights; the
+        // returned point must coincide with a direct augmented solve using
+        // the same (normalised) weights and payoff-table ideal.
+        let prob = LinearMultiObjective::new(
+            vec![term(vec![1.0, 0.0], 0.0), term(vec![0.0, 1.0], 0.0)],
+            vec![(0.0, 2.0), (0.0, 2.0)],
+        );
+        let (x_ada, _) =
+            prob.solve_weighted_tchebycheff_adaptive(&[3.0, 1.0], 4, 0.0, 1e-2).unwrap();
+        let (z, _) = prob.payoff_table().unwrap();
+        let (x_fix, _) = prob.solve_augmented_tchebycheff(&[0.75, 0.25], &z, 1e-2).unwrap();
+        for (a, b) in x_ada.iter().zip(x_fix.iter()) {
+            assert!((a - b).abs() < 1e-6, "eta=0 must reduce to the fixed-weight solve");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "strictly positive")]
+    fn adaptive_tchebycheff_rejects_nonpositive_initial_weights() {
+        let prob = LinearMultiObjective::new(
+            vec![term(vec![1.0, 0.0], 0.0), term(vec![0.0, 1.0], 0.0)],
+            vec![(0.0, 2.0), (0.0, 2.0)],
+        );
+        let _ = prob.solve_weighted_tchebycheff_adaptive(&[1.0, 0.0], 4, 0.5, 1e-2);
     }
 }

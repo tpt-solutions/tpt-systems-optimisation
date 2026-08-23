@@ -1,0 +1,30 @@
+# Dependency maintenance between manual `cargo deny check` runs (see
+# CONTRIBUTING.md). Cargo updates cover workspace + per-crate manifests;
+# GitHub Actions keeps the CI workflow's action pins current.
+
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Group routine patch/minor bumps so PRs stay reviewable; security
+    # advisories still surface individually through cargo-deny in CI.
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "cargo"
+    directory: "/examples"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3

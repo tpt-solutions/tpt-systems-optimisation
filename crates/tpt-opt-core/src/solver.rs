@@ -13,6 +13,7 @@ use crate::tolerance::Tolerances;
 
 /// Terminal status reported by a solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SolverStatus {
     /// A proven optimal solution was found.
     Optimal,
@@ -37,6 +38,7 @@ impl SolverStatus {
 
 /// Verbosity level for solver logging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Verbosity {
     /// No output.
     Quiet,
@@ -48,6 +50,7 @@ pub enum Verbosity {
 
 /// Solver parameter bundle (time limit, gap, threads, seed, tolerances, ...).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SolveParameters {
     /// Wall-clock time limit in seconds (`None` = no limit).
     pub time_limit: Option<f64>,
@@ -125,6 +128,7 @@ impl Default for SolveParameters {
 
 /// Warm-start data for reusing a previous solve.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarmStart {
     /// Previously known primal values (optionally partial).
     pub primal: Option<Vec<f64>>,
@@ -157,7 +161,12 @@ impl WarmStart {
 }
 
 /// Extracted solution: primal/dual/reduced-cost/slack vectors plus metadata.
+///
+/// With the optional `serde` feature solutions serialise alongside their
+/// models, so a (model, solution) pair can be cached or attached to a bug
+/// report and replayed deterministically.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Solution {
     /// Primal variable values.
     pub primal: Vec<f64>,

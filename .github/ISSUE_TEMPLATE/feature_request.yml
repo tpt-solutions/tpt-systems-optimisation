@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a new capability, algorithm or usability improvement.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: crate
+    attributes:
+      label: Target crate
+      options:
+        - tpt-opt-core
+        - tpt-opt-milp
+        - tpt-opt-minlp
+        - tpt-opt-network
+        - tpt-opt-cp
+        - tpt-opt-heuristic
+        - tpt-opt-multi
+        - tpt-opt-robust
+        - tpt-opt-decompose
+        - tpt-opt-systems
+        - other / workspace-level
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What can you not do today? Include the domain context (energy, transportation, process, ...) if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Sketch of the API or algorithm. Note any licensing constraints — dependencies must stay permissively licensed (see CONTRIBUTING.md).
+    validations:
+      required: true
+  - type: checkboxes
+    id: policy
+    attributes:
+      label: Policy acknowledgement
+      options:
+        - label: The proposal keeps determinism (seeded RNG where randomness is involved).
+        - label: The proposal avoids new non-permissive dependencies.

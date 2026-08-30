@@ -15,7 +15,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
         with:
           components: rustfmt
@@ -25,7 +25,7 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
         with:
           components: clippy
@@ -35,7 +35,7 @@ jobs:
     name: test + doctests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - uses: taiki-e/install-action@cargo-nextest
       - run: cargo nextest run --workspace --all-features
@@ -45,7 +45,7 @@ jobs:
     name: no_std build (thumbv6m-none-eabi)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
         with:
           targets: thumbv6m-none-eabi
@@ -58,7 +58,7 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -67,7 +67,7 @@ jobs:
     name: feature-powerset (umbrella)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - uses: taiki-e/install-action@cargo-hack
       - run: cargo hack --package tpt-opt-systems --feature-powerset --no-dev-deps check
@@ -87,7 +87,7 @@ jobs:
           - "milp,cp"
           - "milp,network"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo check -p tpt-opt-systems --no-default-features --features "${{ matrix.features }}"
 
@@ -95,7 +95,7 @@ jobs:
     name: MSRV build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo build --workspace --all-features
 
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - uses: obi1kenobi/cargo-semver-checks-action@v2
 
@@ -112,7 +112,7 @@ jobs:
     name: bench compile-only
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo bench --workspace --no-run
 
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture
 
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo xtask fetch-fixtures
       - run: cargo test -p tpt-opt-milp --test benchmark_corpus -- --nocapture

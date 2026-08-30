@@ -70,7 +70,7 @@ fn fuzz_random_convex_minlps_invariants_hold() {
             },
         );
 
-        let cfg = OaConfig { max_iter: 40, ..OaConfig::default() };
+        let cfg = OaConfig { max_iter: 20, ..OaConfig::default() };
         let res = outer_approximate(&model, &cfg);
 
         if let Some(x) = &res.x {

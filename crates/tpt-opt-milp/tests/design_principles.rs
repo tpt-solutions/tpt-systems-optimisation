@@ -279,6 +279,30 @@ fn parallel_tree_search_matches_sequential_exactly() {
 }
 
 #[test]
+fn work_stealing_matches_sequential_optimum() {
+    // The dynamic work-stealing search explores the same tree as the sequential
+    // one, so it must reach the same optimum (the incumbent trajectory may
+    // differ because subtrees are stolen, but the optimal value is identical).
+    let model = random_knapsack(0xDEAD_BEEF, 28);
+    let seq = MilpSolver::new().with_seed(42).with_threads(1).solve(&model).unwrap();
+    let ws = MilpSolver::new()
+        .with_seed(42)
+        .with_threads(4)
+        .with_work_stealing(true)
+        .solve(&model)
+        .unwrap();
+
+    assert_eq!(seq.status, SolverStatus::Optimal);
+    assert_eq!(ws.status, SolverStatus::Optimal);
+    assert!(
+        (seq.objective_value - ws.objective_value).abs() < 1e-9,
+        "sequential {} vs work-stealing {}",
+        seq.objective_value,
+        ws.objective_value
+    );
+}
+
+#[test]
 fn repeated_sequential_solves_are_bit_identical() {
     let model = random_knapsack(0x1234_5678, 24);
     let a = MilpSolver::new().with_seed(7).solve(&model).unwrap();

@@ -109,6 +109,22 @@ impl CpModel {
     pub fn ac3(&mut self) -> Result<Ac3Stats, Inconsistency> {
         fixpoint_ac3(&mut self.domains, &self.constraints).map_err(|_| Inconsistency)
     }
+
+    /// Preprocess the model in place with **AC-4** (Mohr & Henderson, 1986):
+    /// maintain, for every `(variable, value)` pair in each constraint's scope,
+    /// a support witness; whenever a value is removed, every constraint that
+    /// watched it re-checks its own `(variable, value)` pairs and prunes those
+    /// that lost their last support. This reaches the same domain-consistent
+    /// fixpoint as [`ac3`](CpModel::ac3) but with tighter incremental pruning
+    /// on constraints that expose a cheap support test; native `propagate`
+    /// filters run alongside the support oracle so global constraints still get
+    /// their dedicated GAC each revision.
+    ///
+    /// Returns the propagation statistics, or `Err(`[`Inconsistency`]) when a
+    /// domain wipes out.
+    pub fn ac4(&mut self) -> Result<Ac3Stats, Inconsistency> {
+        fixpoint_ac4(&mut self.domains, &self.constraints).map_err(|_| Inconsistency)
+    }
 }
 
 /// Statistics from one AC-3 propagation run.
@@ -189,6 +205,93 @@ pub(crate) fn fixpoint_ac3(
         }
     }
     Ok(stats)
+}
+
+/// Run **AC-4** propagation to a fixpoint; returns `Err(index)` if a domain
+/// empties. Combines the support-maintenance algorithm with native `propagate`
+/// filters: each time a variable loses a value, every constraint watching it is
+/// (a) re-filtered through its own `propagate` GAC and (b) re-checked for
+/// `(variable, value)` pairs that lost their last support via
+/// [`Constraint::supported`]; pruned values are enqueued for further
+/// propagation. The result is a domain-consistent fixpoint.
+pub(crate) fn fixpoint_ac4(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+) -> Result<Ac3Stats, usize> {
+    let mut var_cons: Vec<Vec<usize>> = vec![Vec::new(); doms.len()];
+    for (ci, c) in cons.iter().enumerate() {
+        for &v in c.vars() {
+            if v < doms.len() && !var_cons[v].contains(&ci) {
+                var_cons[v].push(ci);
+            }
+        }
+    }
+
+    let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+    let mut stats = Ac3Stats::default();
+
+    // Initial revision: native GAC pass, then support pruning for every pair.
+    for (ci, c) in cons.iter().enumerate() {
+        stats.revisions += 1;
+        if c.propagate(doms).is_err() {
+            return Err(ci);
+        }
+        for &v in c.vars() {
+            if doms[v].is_empty() {
+                return Err(ci);
+            }
+        }
+    }
+    for ci in 0..cons.len() {
+        prune_unsupported(ci, doms, cons, &mut queue, &mut stats);
+        if doms.iter().any(|d| d.is_empty()) {
+            // Locate the offending constraint for the error index.
+            for (j, c) in cons.iter().enumerate() {
+                if c.vars().iter().any(|&v| doms[v].is_empty()) {
+                    return Err(j);
+                }
+            }
+        }
+    }
+
+    while let Some((rv, _rval)) = queue.pop_front() {
+        for &cj in &var_cons[rv] {
+            stats.revisions += 1;
+            if cons[cj].propagate(doms).is_err() {
+                return Err(cj);
+            }
+            prune_unsupported(cj, doms, cons, &mut queue, &mut stats);
+            if doms.iter().any(|d| d.is_empty()) {
+                for (j, c) in cons.iter().enumerate() {
+                    if c.vars().iter().any(|&v| doms[v].is_empty()) {
+                        return Err(j);
+                    }
+                }
+            }
+        }
+    }
+    Ok(stats)
+}
+
+/// Remove every `(v, val)` in `cons[ci]`'s scope that has no support, enqueue
+/// each removed pair, and count the removals in `stats`.
+fn prune_unsupported(
+    ci: usize,
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+    queue: &mut VecDeque<(usize, usize)>,
+    stats: &mut Ac3Stats,
+) {
+    let scope = cons[ci].vars().to_vec();
+    for &v in &scope {
+        let vals = doms[v].values().to_vec();
+        for val in vals {
+            if !cons[ci].supported(v, val, doms) && doms[v].remove(val) {
+                stats.removals += 1;
+                queue.push_back((v, val));
+            }
+        }
+    }
 }
 
 /// Compatibility wrapper preserving the historical round-robin signature:

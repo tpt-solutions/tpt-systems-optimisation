@@ -1,0 +1,22 @@
+[package]
+name = "tpt-opt-conic"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Conic (second-order-cone and semidefinite) optimisation: SOCP/SDP solvers for robust and convex problems"
+readme = "README.md"
+keywords = ["conic-optimization", "socp", "sdp", "robust-optimization", "optimization"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-conic"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+    tpt-opt-milp = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

@@ -27,12 +27,7 @@ pub struct Edge {
 impl Edge {
     /// Construct an edge from `from` to `to` with the given `capacity`/`cost`.
     pub fn new(from: usize, to: usize, capacity: f64, cost: f64) -> Self {
-        Edge {
-            from,
-            to,
-            capacity,
-            cost,
-        }
+        Edge { from, to, capacity, cost }
     }
 }
 
@@ -51,11 +46,7 @@ pub struct Graph {
 impl Graph {
     /// Create a graph with `n` nodes and no edges.
     pub fn new(n: usize) -> Self {
-        Graph {
-            n,
-            edges: Vec::new(),
-            out: vec![Vec::new(); n],
-        }
+        Graph { n, edges: Vec::new(), out: vec![Vec::new(); n] }
     }
 
     /// Number of nodes.

@@ -10,11 +10,11 @@ use tpt_opt_core::{
     Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
 };
 
-use crate::rng::RngExt;
 use crate::history::ConvergenceHistory;
 use crate::problem::{random_point, Objective};
 use crate::result::HeuristicResult;
 use crate::rng::Rng;
+use crate::rng::RngExt;
 use crate::ModelObjective;
 
 /// Inertia-weight schedule for PSO.

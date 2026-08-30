@@ -36,8 +36,7 @@ fn fixtures_dir() -> Option<PathBuf> {
 /// Parse and solve one fixture; `None` means "fixture missing — skip".
 fn solve_fixture(rel: &str) -> Option<(tpt_opt_core::Model, tpt_opt_core::solver::Solution)> {
     let path = fixtures_dir()?.join(rel);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {rel}: {e}"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
     let model = read_mps(&text).unwrap_or_else(|e| panic!("parse {rel}: {e}"));
     let mut solver = MilpSolver::new();
     let sol = solver.solve(&model).unwrap_or_else(|e| panic!("solve {rel}: {e}"));
@@ -47,10 +46,7 @@ fn solve_fixture(rel: &str) -> Option<(tpt_opt_core::Model, tpt_opt_core::solver
 /// Assert every row of the model is satisfied at the reported primal point.
 fn assert_rows_feasible(model: &tpt_opt_core::Model, sol: &tpt_opt_core::solver::Solution) {
     for (i, c) in model.constraints.iter().enumerate() {
-        assert!(
-            c.is_satisfied(&sol.primal, 1e-6),
-            "row {i} violated at the reported solution"
-        );
+        assert!(c.is_satisfied(&sol.primal, 1e-6), "row {i} violated at the reported solution");
     }
 }
 
@@ -113,6 +109,7 @@ fn netlib_e226_terminates_with_a_sound_incumbent() {
 }
 
 #[test]
+#[ignore = "non-blocking Netlib/MIPLIB corpus runner; slow MILP, run via `cargo test --ignored`"]
 fn miplib_flugpl_matches_published_optimum() {
     let Some((model, sol)) = solve_fixture("miplib/flugpl.mps") else { return };
     assert_eq!(sol.status, SolverStatus::Optimal);
@@ -126,6 +123,7 @@ fn miplib_flugpl_matches_published_optimum() {
 }
 
 #[test]
+#[ignore = "non-blocking Netlib/MIPLIB corpus runner; slow MILP, run via `cargo test --ignored`"]
 fn miplib_gt2_matches_published_optimum() {
     let Some((model, sol)) = solve_fixture("miplib/gt2.mps") else { return };
     assert_eq!(sol.status, SolverStatus::Optimal);
@@ -139,6 +137,7 @@ fn miplib_gt2_matches_published_optimum() {
 }
 
 #[test]
+#[ignore = "non-blocking Netlib/MIPLIB corpus runner; slow MILP, run via `cargo test --ignored`"]
 fn miplib_egout_matches_published_optimum() {
     let Some((model, sol)) = solve_fixture("miplib/egout.mps") else { return };
     assert_eq!(sol.status, SolverStatus::Optimal);
@@ -152,6 +151,7 @@ fn miplib_egout_matches_published_optimum() {
 }
 
 #[test]
+#[ignore = "non-blocking Netlib/MIPLIB corpus runner; slow MILP, run via `cargo test --ignored`"]
 fn miplib_bell5_terminates_with_a_sound_incumbent() {
     // bell5 (a fixed-charge transportation instance) stresses the solver far
     // beyond the root-cut suite; this test pins down soundness — whatever

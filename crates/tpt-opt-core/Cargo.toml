@@ -17,7 +17,10 @@ documentation = "https://docs.rs/tpt-opt-core"
 tpt-math-linalg-sparse = { workspace = true }
 serde = { workspace = true, optional = true }
 # Optional dependency backing the in-crate augmented-Lagrangian NLP solver
-# (`nlp` module) used by `tpt-opt-minlp` and `tpt-opt-network`'s AC-OPF.
+# (`nlp` module) used by `tpt-opt-minlp` and `tpt-opt-network`'s AC-OPF. The
+# published crate ships only *unconstrained* minimizers; `solve_nlp` drives the
+# outer augmented-Lagrangian loop and uses its conjugate-gradient solver for the
+# inner subproblem.
 tpt-math-optimize-general = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -28,8 +31,9 @@ default = ["std"]
 std = ["alloc"]
 alloc = []
 # Augmented-Lagrangian constrained-NLP solver (`solve_nlp`/`NlpProblem`),
-# vendored locally because the published `tpt-math-optimize-general` only
-# exposes unconstrained minimizers. Implies `alloc` (uses `Vec`).
+# vendored locally as a self-contained BFGS implementation because the
+# published `tpt-math-optimize-general` only exposes unconstrained minimizers.
+# Implies `alloc` (uses `Vec`); does not depend on `tpt-math-optimize-general`.
 nlp = ["dep:tpt-math-optimize-general", "alloc"]
 # Serialize/Deserialize derives on the canonical model, solution, parameters,
 # tolerances, and error types (warm-start caching, reproducible bug reports).

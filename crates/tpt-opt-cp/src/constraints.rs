@@ -17,7 +17,72 @@ pub trait Constraint {
     fn propagate(&self, doms: &mut [Domain]) -> Result<(), Inconsistency>;
     /// Full check on a complete assignment (used after search fixes everything).
     fn check(&self, assign: &[usize]) -> bool;
+
+    /// Support oracle for GAC/AC-4: does there exist an assignment of the
+    /// constraint's *other* scope variables (within their current domains)
+    /// that, together with `var = val`, satisfies the constraint? A value with
+    /// no support may be pruned soundly.
+    ///
+    /// The default brute-forces the Cartesian product of the other scope
+    /// variables' domains (enumerating at most `MAX_SUPPORT_ENUM` leaves; if a
+    /// constraint's scope is too wide to enumerate, this conservatively reports
+    /// `true` so that no supported value is ever removed — sound, just weaker
+    /// pruning). Constraints with an efficient support test may override this.
+    fn supported(&self, var: usize, val: usize, doms: &[Domain]) -> bool {
+        let scope = self.vars();
+        let Some(pos) = scope.iter().position(|&v| v == var) else {
+            return true;
+        };
+        let others: Vec<(usize, Vec<usize>)> = scope
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != pos)
+            .map(|(_, &v)| (v, doms[v].values().to_vec()))
+            .collect();
+        let mut product: usize = 1;
+        for (_, d) in &others {
+            product = product.saturating_mul(d.len());
+        }
+        if product == 0 {
+            return false;
+        }
+        if product > crate::constraints::MAX_SUPPORT_ENUM {
+            // Too wide to enumerate cheaply: stay conservative.
+            return true;
+        }
+        let mut assign = vec![0usize; doms.len()];
+        assign[var] = val;
+        if others.is_empty() {
+            return self.check(&assign);
+        }
+        let mut idx = vec![0usize; others.len()];
+        loop {
+            for (k, &(v, ref d)) in others.iter().enumerate() {
+                assign[v] = d[idx[k]];
+            }
+            if self.check(&assign) {
+                return true;
+            }
+            // Mixed-radix increment.
+            let mut i = others.len() - 1;
+            loop {
+                idx[i] += 1;
+                if idx[i] < others[i].1.len() {
+                    break;
+                }
+                idx[i] = 0;
+                if i == 0 {
+                    return false;
+                }
+                i -= 1;
+            }
+        }
+    }
 }
+
+/// Cap on the number of candidate assignments enumerated by the default
+/// [`Constraint::supported`] oracle before it conservatively reports support.
+pub const MAX_SUPPORT_ENUM: usize = 4096;
 
 fn unique_vars(xs: &[(usize, i64)]) -> Vec<usize> {
     let mut v: Vec<usize> = xs.iter().map(|&(x, _)| x).collect();
@@ -508,40 +573,47 @@ impl Constraint for Circuit {
             }
         }
 
-        // 5. Premature-cycle pruning: assigning x_i = j closes a cycle
-        //    through i; reject unless that cycle would span all n nodes.
+        // 5. Reachability-based pruning (stronger than a single premature-cycle
+        //    walk): assigning `x_i = j` must still leave a path able to visit
+        //    *every* node. Build a tentative successor map (fixed edges plus this
+        //    assignment) and, starting at `j`, follow the fixed edges counting
+        //    distinct nodes reached. If the reachable set plus the still-unfixed
+        //    variables cannot cover all `n` nodes, or the walk closes a cycle
+        //    shorter than `n` before covering everyone, the assignment is
+        //    infeasible and `j` is pruned.
         let succ = self.fixed_successors(doms);
+        let unfixed_total = self.vars.iter().filter(|&&w| !doms[w].is_singleton()).count();
         for (i, &v) in self.vars.iter().enumerate() {
             if doms[v].is_singleton() {
                 continue;
             }
             let candidates: Vec<usize> = doms[v].values().to_vec();
             for &j in &candidates {
-                // Walk the fixed-successor chain starting at j.
                 let mut cur = j;
                 let mut visited = vec![false; n];
-                let mut steps = 0usize;
-                let mut reaches_i = false;
-                let mut closes_early = false;
+                let mut distinct = 0usize;
+                let mut closes = false;
                 loop {
-                    if cur == i {
-                        reaches_i = true;
-                        break;
-                    }
                     if visited[cur] {
-                        // Closed a cycle that does not pass through i.
-                        closes_early = true;
+                        closes = true;
                         break;
                     }
                     visited[cur] = true;
-                    steps += 1;
-                    match succ[cur] {
-                        Some(next) => cur = next,
-                        None => break, // chain ends at an unfixed variable
+                    distinct += 1;
+                    if distinct >= n {
+                        break;
+                    }
+                    // Tentative next: the candidate edge for `i`, else the fixed
+                    // successor (if any).
+                    let next = if cur == i { Some(j) } else { succ[cur] };
+                    match next {
+                        Some(nx) => cur = nx,
+                        None => break,
                     }
                 }
-                let premature = reaches_i && steps < n - 1;
-                if premature || closes_early {
+                let premature = closes && distinct < n;
+                let unreachable = !closes && distinct + unfixed_total < n;
+                if premature || unreachable {
                     doms[v].remove(j);
                     if doms[v].is_empty() {
                         return Err(Inconsistency);

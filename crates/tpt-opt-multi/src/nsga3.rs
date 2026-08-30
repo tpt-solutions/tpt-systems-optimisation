@@ -16,8 +16,8 @@
 
 use std::vec::Vec;
 
-use tpt_math_prob::sampler::{Rng, SplitMix64};
 use crate::RngExt;
+use tpt_math_prob::sampler::{Rng, SplitMix64};
 
 /// Configuration for [`Nsga3`].
 #[derive(Debug, Clone)]

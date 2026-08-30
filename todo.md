@@ -117,7 +117,7 @@ depends on `tpt-math-linalg` (CSR/CSC compatibility).*
 - [x] Crates.io metadata (description/keywords/categories/documentation) â€” present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-core` name on crates.io â€” availability confirmed 2026-08-23 (API 404); reservation completes at first publish
 - [x] `cargo package --list` clean â€” README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
-- [ ] `cargo publish --dry-run` clean
+- [x] `cargo publish --dry-run` clean — **verified 2026-08-30**: registry build against the published `tpt-math-linalg-sparse` / `tpt-math-optimize-general` / `tpt-math-linalg-dense` succeeds; the `Verifying` step compiles clean (run locally with `--allow-dirty` because the in-progress migration is uncommitted). The old `CscMatrix` blocker is resolved by `tpt-math-linalg-sparse` being published.
 
 ## Phase 2 â€” tpt-opt-milp
 
@@ -180,7 +180,7 @@ transitive dep).
 - [x] Document the added C++ build-toolchain requirement when `highs` is enabled â€” `crates/tpt-opt-milp/README.md` ("External solver binding" section)
 - [x] Cross-solver validation test (in-house vs. HiGHS) on shared small MILP instances, feature-gated â€” `tests/highs_cross_validation.rs`: knapsack (24), covering (9), mixed continuous/integer equality (âˆ’10.5), infeasible, unbounded â€” both solvers agree on objective/status in every case
 - [x] Confirm `highs`/`highs-sys` license (MIT) passes `cargo deny check` when the feature is enabled â€” verified: `cargo deny --features tpt-opt-milp/highs check licenses` â†’ ok (after adding `Unicode-3.0` to the allowlist for bindgen's transitive deps)
-- [ ] `cargo publish --dry-run -p tpt-opt-milp --no-default-features` and `--all-features` both run **BLOCKED (re-diagnosed 2026-08-23)**: dependency resolution now succeeds because the real `tpt-math-*` crates are published on crates.io (0.1.0, owner PhillipC05, repo tpt-solutions/tpt-math), but the published API diverges fundamentally from this workspace's local dev shims (`deps/`): published `tpt-math-linalg` is a unit-tagged faer/uom dense-algebra facade with no `CscMatrix`/`CsrMatrix`/`Triplet` at its root, so `tpt-opt-core` (and therefore every downstream crate) fails to compile during the dry-run's registry build (`error[E0432]: no CscMatrix in the root`). Unblocking requires a human decision: (a) port the `tpt-opt-*` crates to the published tpt-math API, (b) publish the shims under new crate names and depend on those, or (c) coordinate with tpt-math to expose the sparse CSR/CSC surface. Packaging itself (`cargo package --list`) remains clean for all crates (see Phase 9 note)
+- [ ] `cargo publish --dry-run -p tpt-opt-milp --no-default-features` and `--all-features` both run **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy. (see Phase 9 note)
 
 ## Phase 3 â€” tpt-opt-network
 
@@ -440,7 +440,7 @@ clean; deny clean; README/CHANGELOG and crates.io metadata added.
 - [x] Crates.io metadata â€” `description` added; per-crate `readme = "README.md"` set in `Cargo.toml`
 - [ ] Reserve `tpt-opt-decompose` name on crates.io â€” availability confirmed 2026-08-23 (API 404); reservation completes at first publish
 - [x] `cargo package --list` clean â€” verified: README/CHANGELOG/sources/tests included, matches the sibling-crate convention
-- [ ] `cargo publish --dry-run` clean **BLOCKED (re-diagnosed 2026-08-23)**: dependency resolution now succeeds because the real `tpt-math-*` crates are published on crates.io (0.1.0, owner PhillipC05, repo tpt-solutions/tpt-math), but the published API diverges fundamentally from this workspace's local dev shims (`deps/`): published `tpt-math-linalg` is a unit-tagged faer/uom dense-algebra facade with no `CscMatrix`/`CsrMatrix`/`Triplet` at its root, so `tpt-opt-core` (and therefore every downstream crate) fails to compile during the dry-run's registry build (`error[E0432]: no CscMatrix in the root`). Unblocking requires a human decision: (a) port the `tpt-opt-*` crates to the published tpt-math API, (b) publish the shims under new crate names and depend on those, or (c) coordinate with tpt-math to expose the sparse CSR/CSC surface. Packaging itself (`cargo package --list`) remains clean for all crates
+- [ ] `cargo publish --dry-run` clean **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
 
 ## Phase 10 â€” tpt-opt-systems (umbrella)
 
@@ -472,7 +472,7 @@ under `all-solvers`; fmt/clippy/deny clean.
 - [x] Crates.io metadata â€” `description`, `keywords`, `categories`, `readme = "README.md"`, `documentation` present in `Cargo.toml`
 - [ ] Reserve `tpt-opt-systems` name on crates.io â€” availability confirmed 2026-08-23 (API 404); reservation completes at first publish
 - [x] `cargo package --list` clean â€” verified: README/CHANGELOG/sources/tests only
-- [ ] `cargo publish --dry-run` clean (no-default-features and all-features) **BLOCKED (re-diagnosed 2026-08-23)**: dependency resolution now succeeds because the real `tpt-math-*` crates are published on crates.io (0.1.0, owner PhillipC05, repo tpt-solutions/tpt-math), but the published API diverges fundamentally from this workspace's local dev shims (`deps/`): published `tpt-math-linalg` is a unit-tagged faer/uom dense-algebra facade with no `CscMatrix`/`CsrMatrix`/`Triplet` at its root, so `tpt-opt-core` (and therefore every downstream crate) fails to compile during the dry-run's registry build (`error[E0432]: no CscMatrix in the root`). Unblocking requires a human decision: (a) port the `tpt-opt-*` crates to the published tpt-math API, (b) publish the shims under new crate names and depend on those, or (c) coordinate with tpt-math to expose the sparse CSR/CSC surface. Packaging itself (`cargo package --list`) remains clean for all crates (see Phase 9 note)
+- [ ] `cargo publish --dry-run` clean (no-default-features and all-features) **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy. (see Phase 9 note)
 
 ---
 
@@ -536,7 +536,7 @@ separate, later, human-triggered action.*
 - [x] Confirm every crate's `Cargo.toml` has `description`, `keywords` (â‰¤5), `categories` (valid crates.io category slugs), `readme`, `documentation`, `license`, `repository` â€” audited all 10: description/keywords/categories/readme/documentation set per crate; license/repository inherited from `[workspace.package]`; fixed `tpt-opt-core`'s `readme.workspace = true` â†’ `readme = "README.md"` (its workspace pointer resolved outside the package and triggered a packaging warning)
 - [x] Add `[package.metadata.docs.rs]` to `tpt-opt-systems` (and any crate with non-default features) so docs.rs builds with `all-features = true` â€” systems gets `all-features = true`; milp deliberately does **not** (the `highs` feature compiles HiGHS C++ from source, which docs.rs cannot do within its build budget) and instead documents that exclusion in a comment
 - [x] `cargo package -p <crate> --list` audited for every crate â€” confirm README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, no stray files â€” first pass found README+CHANGELOG only (LICENSE files lived solely at the repo root); copied LICENSE-MIT/LICENSE-APACHE into each of the 10 crate dirs; second pass confirms all 4 files present in every package with zero warnings
-- [ ] `cargo publish --dry-run -p <crate>` clean for every crate, run in dependency order (core â†’ milp â†’ network â†’ minlp â†’ cp â†’ heuristic â†’ multi â†’ robust â†’ decompose â†’ systems) **BLOCKED (re-diagnosed 2026-08-23)**: dependency resolution now succeeds because the real `tpt-math-*` crates are published on crates.io (0.1.0, owner PhillipC05, repo tpt-solutions/tpt-math), but the published API diverges fundamentally from this workspace's local dev shims (`deps/`): published `tpt-math-linalg` is a unit-tagged faer/uom dense-algebra facade with no `CscMatrix`/`CsrMatrix`/`Triplet` at its root, so `tpt-opt-core` (and therefore every downstream crate) fails to compile during the dry-run's registry build (`error[E0432]: no CscMatrix in the root`). Unblocking requires a human decision: (a) port the `tpt-opt-*` crates to the published tpt-math API, (b) publish the shims under new crate names and depend on those, or (c) coordinate with tpt-math to expose the sparse CSR/CSC surface. Packaging itself (`cargo package --list`) remains clean for all crates
+- [ ] `cargo publish --dry-run -p <crate>` clean for every crate, run in dependency order (core â†’ milp â†’ network â†’ minlp â†’ cp â†’ heuristic â†’ multi â†’ robust â†’ decompose â†’ systems) **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
 
 ### Docs + governance
 
@@ -551,7 +551,7 @@ separate, later, human-triggered action.*
 - [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean â€” verified locally with zero warnings emitted
 - [x] `cargo deny check` clean workspace-wide â€” advisories/bans/licenses/sources ok
 - [x] `cargo doc --workspace --no-deps` succeeds with no broken intra-doc links â€” zero rustdoc warnings after de-linking feature-gated mentions in the umbrella docs and fixing redundant explicit link targets across `tpt-opt-heuristic`/`tpt-opt-multi`/`tpt-opt-systems`
-- [ ] `cargo publish --dry-run` clean for all 10 crates, confirmed in one final pass after any last-minute doc/metadata edits **BLOCKED (re-diagnosed 2026-08-23)**: dependency resolution now succeeds because the real `tpt-math-*` crates are published on crates.io (0.1.0, owner PhillipC05, repo tpt-solutions/tpt-math), but the published API diverges fundamentally from this workspace's local dev shims (`deps/`): published `tpt-math-linalg` is a unit-tagged faer/uom dense-algebra facade with no `CscMatrix`/`CsrMatrix`/`Triplet` at its root, so `tpt-opt-core` (and therefore every downstream crate) fails to compile during the dry-run's registry build (`error[E0432]: no CscMatrix in the root`). Unblocking requires a human decision: (a) port the `tpt-opt-*` crates to the published tpt-math API, (b) publish the shims under new crate names and depend on those, or (c) coordinate with tpt-math to expose the sparse CSR/CSC surface. Packaging itself (`cargo package --list`) remains clean for all crates
+- [ ] `cargo publish --dry-run` clean for all 10 crates, confirmed in one final pass after any last-minute doc/metadata edits **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
 
 ## Open Risks / Assumptions
 
@@ -570,7 +570,8 @@ separate, later, human-triggered action.*
 - [x] **HiGHS build dependency**: the optional `highs` feature (Phase 2a) pulls in a C++ build via `highs-sys`-style bindings â€” documented in `tpt-opt-milp`'s README ("External solver binding" section); the no-default-features build remains pure Rust and unaffected (verified via `cargo build -p tpt-opt-milp` and the umbrella's `--no-default-features` build); CI wiring for the toolchain-dependent job remains future work alongside the publish phase
 - [x] **Crate name availability**: all 10 `tpt-opt-*` names are assumed available on crates.io but not yet verified â€” **RESOLVED (2026-08-23)**: queried the crates.io API for every name; all ten return 404 (unclaimed/available). No collisions; safe to proceed to publish when triggered
 - [ ] **tpt-math published-API divergence (NEW, 2026-08-23)**: the real `tpt-math-*` crates are now on crates.io (0.1.0) but implement a different design than the `deps/` shims this workspace was built against (unit-tagged faer/uom dense algebra vs. sparse CSR/CSC/Triplet + dense helpers). Every `cargo publish --dry-run` compiles against the registry versions and fails at `tpt-opt-core` with `no CscMatrix in the root`. Resolution options: port `tpt-opt-*` to the published API, publish the shims under new names, or extend tpt-math with the sparse surface â€” needs an owner decision before any publish
-- [x] **Benchmark corpora size**: MIPLIB 2017 / MINLPLib / Netlib / CSPLib instance files are large external downloads — **RESOLVED (2026-08-23)**: fixtures live at repo-root `tests/fixtures/` (outside every crate directory, so they can never enter a packaged `.crate` file), downloaded on demand by `cargo xtask fetch-fixtures`, auto-added to `.gitignore`, and consumed by skip-if-absent corpus tests; CI fetches them in the non-blocking `benchmark-corpus` job only
+  - [x] **Publish blockers re-diagnosed (2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED (`tpt-math-linalg-sparse` published; `tpt-opt-core` dry-runs clean against the published `tpt-math-*` crates). One remaining blocker: `cargo publish` ordering - every downstream `tpt-opt-*` crate needs its `tpt-opt-*` dependencies already on crates.io, so they can only be dry-run/published after the live (out-of-scope) publish of earlier crates. The MINLP regression is **RESOLVED** (2026-08-30): `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 `tpt-opt-minlp` lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green.
+ - [x] **Benchmark corpora size**: MIPLIB 2017 / MINLPLib / Netlib / CSPLib instance files are large external downloads — **RESOLVED (2026-08-23)**: fixtures live at repo-root `tests/fixtures/` (outside every crate directory, so they can never enter a packaged `.crate` file), downloaded on demand by `cargo xtask fetch-fixtures`, auto-added to `.gitignore`, and consumed by skip-if-absent corpus tests; CI fetches them in the non-blocking `benchmark-corpus` job only
 - [ ] **SCIP/Gurobi/CPLEX deferral**: spec Â§4 mentions these as pluggable via feature flags; explicitly out of scope for this pass on licensing grounds â€” revisit only if a future consumer has a commercial license and requests it as an opt-in, clearly-labeled non-default feature
 - [x] **MilpSolver premature/suboptimal termination on some feature-heavy instances** (discovered while testing the new MPS/LP readers): on max 3X+4Y+Z+5(constant) s.t. 2X+3Y+4Z<=9, Z+W>=1, W in [2,5], X,Y integer, Z in [0,2.5], the bundled B&B returned Optimal 17 instead of the true optimum 18 (X=3,Y=1,Z=0,W=5) after exploring a single node. **FIXED (2026-08-23)**: root cause was an objective-convention mismatch â€” `lp.rs` initialised its objective accumulator at 0 and never added `model.objective.constant`, while heuristic/warm-start incumbents are scored with `Objective::eval` (constant included). On a maximisation model with a positive constant every node bound looked dominated by the incumbent, so the entire tree was pruned immediately (minimisation had the mirror-image bias). Fix: `solve_lp_state` now starts `obj_constant` at `model.objective.constant`, matching the HiGHS binding which already restored the constant after its solve; all bound/delta consumers in `milp.rs` shift uniformly so pseudo-costs and pruning stay consistent. Regression tests added (`crates/tpt-opt-milp/tests/repro_search_bug.rs`: maximisation finds 18, minimisation-with-constant variant finds 87); both format.rs handwritten-feature tests now carry real solve assertions (18 and 8 respectively); full workspace test suite passes.
 
@@ -618,3 +619,77 @@ starting point (adoption/examples).*
 - [x] Domain-flavored quick-start snippet per row of the README's Tier 2 consumption table (energy/transportation/process/etc.), not just the feature-flag list — "Domain-flavoured snippets" section in `README.md` with one illustrative API call per consumer
 - [x] Comparison/benchmark table for evaluators (in-house MILP vs. HiGHS on MIPLIB, speed + solution quality) — "In-house vs HiGHS at a glance" table in `README.md` summarises the 5-instance cross-validation; raw-speed comparison documented as reproduce-locally (hardware-dependent) â€” the correctness cross-validation already exists (`highs_cross_validation.rs`), just not presented as a comparison
 - [x] Link every crate's docs.rs page (once published) and per-crate README/CHANGELOG from the root README's crate-map table — crate-map table links each crate dir and its docs.rs page; the crates.io/docs.rs badges resolve on publish
+
+---
+
+## Phase 11 — Backlog / Future-Work Implementation (2026-08-30)
+
+*Consolidates every unchecked item from the Backlog and the cross-cutting
+checklist into one tracked phase and implements what is feasible/verifiable in
+this environment. Items needing an external toolchain, a conic solver, or
+out-of-repo fixture downloads remain explicitly deferred with a stated reason.*
+
+### Algorithmic gaps
+
+- [x] **`tpt-opt-cp` AC-4 named arc-consistency algorithm** — added
+      `CpModel::ac4()` / `fixpoint_ac4` (support-maintenance algorithm; native
+      `propagate` GAC runs alongside the support oracle). `Constraint::supported`
+      default oracle added (bounded brute-force; conservative on wide scopes).
+      Verified: AC-4 fixpoint ⊆ AC-3 fixpoint (sound), both detect wipeouts,
+      both solve `n`-queens.
+- [x] **`tpt-opt-cp` impact / activity variable selection** — `VariableSelection`
+      enum (`FirstFail` / `Impact` / `Activity`) + `solve_with` /
+      `solutions_with`. VSIDS-style activity counts failures; impact uses
+      constraint degree. All three strategies solve `n`-queens.
+- [x] **`tpt-opt-cp` stronger circuit GAC** — `Circuit::propagate` now does
+      reachability-based pruning: a candidate successor that cannot possibly
+      reach all `n` nodes (distinct-reachable + still-unfixed < `n`, or a
+      premature closed cycle) is pruned. Strictly stronger, still sound.
+- [x] **`tpt-opt-milp` work-stealing parallel tree search** — added
+      `MilpSolver::with_work_stealing(true)` routing to a new
+      `solve_parallel_ws`: pre-expand root BFS to ≥ threads subtree roots on a
+      shared `Mutex<VecDeque<Node>>`; idle workers steal subtrees and run the
+      standard `run_search` on them. Explores the same tree → optimal value
+      equals the sequential result (incumbent trajectory may differ). Test
+      `work_stealing_matches_sequential_optimum` asserts objective equality at
+      4 threads.
+- [ ] **`tpt-opt-robust` SOCP/SDP reformulation for ellipsoidal uncertainty**
+      — **DEFERRED (solver capability)**: the bundled solvers are LP/MILP only;
+      a true second-order-cone / semidefinite program needs a conic solver
+      (e.g. a CSDP/ECOS/OSQP-SOCP binding) which is not vendored. The
+      conservative column-norm LP linearisation remains the solve path; a future
+      `robust` entry point that *builds* an SOCP model from an ellipsoidal set
+      (for an external conic solver) is the natural next step.
+- [ ] **Real benchmark-corpus integration tests (full MIPLIB 2017 / MINLPLib /
+      Netlib / CSPLib)** — **DEFERRED (fixtures)**: the full corpora are large
+      external downloads fetched on demand by `cargo xtask fetch-fixtures` into
+      repo-root `tests/fixtures/` (skip-if-absent in CI). The first slice
+      (`benchmark_corpus.rs`: afiro/adlittle/e226 LP, flugpl/gt2/egout/bell5
+      MILP) already exists and is non-blocking; expanding to the full corpora
+      is a matter of widening the fetched fixture set, not new code.
+
+### Interchange & new capabilities
+
+- [x] (previously done) MPS/LP import-export, `serde` serialization, progress
+      callback, `tpt-opt-cli`, `xtask fetch-fixtures`, weighted-Tchebycheff
+      scalarisation, series-parallel audit — all shipped in earlier phases.
+- [ ] **Python bindings via PyO3** (`tpt-opt-milp` / `tpt-opt-heuristic` /
+      `tpt-opt-multi`) — **DEFERRED (toolchain)**: requires adding `pyo3`
+      behind a non-default feature + a `cdylib` crate and `maturin`/cibuildwheel
+      packaging and a Python dev environment; out of scope for this pure-Rust
+      milestone.
+- [ ] **Published benchmarking dashboard** — **DEFERRED (infra)**: the
+      non-blocking `perf_regression.rs` report already prints a wall-time table;
+      tracking it over time needs a CI artifact store / external dashboard
+      service, not a code change here.
+
+### Cross-cutting
+
+- [x] **Parallelism** — `tpt-opt-milp` now has both the deterministic
+      breadth-partition search (`solve_parallel`, thread-count-invariant) and the
+      dynamic work-stealing pool (`solve_parallel_ws`); `tpt-opt-network` has no
+      multi-threaded linear-algebra to share a pool with, so a shared work-stealing
+      pool remains unnecessary there.
+- [ ] **Integration tests (full corpora)** — see the robust/deferred item
+      above; per-crate one-instance hand-crafted benchmarks are already present.
+

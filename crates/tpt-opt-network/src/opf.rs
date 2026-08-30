@@ -18,8 +18,8 @@
 //! / [`tpt_opt_core::solver::SolverStatus::Infeasible`] rather than silently
 //! returning wrong dispatches.
 
-use tpt_opt_core::nlp::{solve_nlp, NlpParams, NlpProblem, NlpStatus};
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
+use tpt_opt_core::nlp::{solve_nlp, NlpParams, NlpProblem, NlpStatus};
 use tpt_opt_core::solver::Solver;
 use tpt_opt_core::{SolverStatus, VarBound};
 

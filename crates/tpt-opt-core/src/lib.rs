@@ -42,12 +42,12 @@ extern crate std;
 pub mod bounds;
 pub mod custom;
 pub mod error;
-pub mod matrix;
 #[cfg(feature = "alloc")]
 pub mod graph;
+pub mod matrix;
+pub mod model;
 #[cfg(feature = "nlp")]
 pub mod nlp;
-pub mod model;
 pub mod progress;
 pub mod solver;
 pub mod tolerance;

@@ -81,6 +81,10 @@ pub struct MilpSolver {
     seed: u64,
     node_limit: Option<usize>,
     nested: bool,
+    /// When `true` and `threads > 1`, use the dynamic work-stealing parallel
+    /// tree search ([`MilpSolver::solve_parallel_ws`]) instead of the
+    /// deterministic breadth-partition search.
+    work_stealing: bool,
     sos_sets: Vec<SosSet>,
     indicators: Vec<IndicatorConstraint>,
     piecewise: Option<PiecewiseObjective>,
@@ -110,6 +114,7 @@ impl Clone for MilpSolver {
             seed: self.seed,
             node_limit: self.node_limit,
             nested: self.nested,
+            work_stealing: self.work_stealing,
             sos_sets: self.sos_sets.clone(),
             indicators: self.indicators.clone(),
             piecewise: self.piecewise.clone(),
@@ -165,6 +170,7 @@ impl MilpSolver {
             seed: 0,
             node_limit: None,
             nested: false,
+            work_stealing: false,
             sos_sets: Vec::new(),
             indicators: Vec::new(),
             piecewise: None,
@@ -221,6 +227,18 @@ impl MilpSolver {
     /// root relaxation). Only meaningful with `.with_cuts(true)`.
     pub fn with_parallel_cuts(mut self, rounds: usize) -> Self {
         self.cut_rounds = rounds.max(1);
+        self
+    }
+
+    /// Enable the dynamic work-stealing parallel tree search. With `threads >
+    /// 1` this replaces the default deterministic breadth-partition search
+    /// ([`MilpSolver::solve_parallel`]) with a shared work queue that idle
+    /// worker threads steal subtrees from, balancing load when subtrees are
+    /// uneven. The result still equals the sequential optimum (it explores the
+    /// same tree), but exploration order — and therefore the exact incumbent
+    /// trajectory — may differ from the deterministic search.
+    pub fn with_work_stealing(mut self, on: bool) -> Self {
+        self.work_stealing = on;
         self
     }
 
@@ -1333,6 +1351,10 @@ impl Solver<Model> for MilpSolver {
         let aborted_at_root = self.abort_flag.load(AtomicOrdering::Relaxed);
         let outcome = if aborted_at_root {
             SearchOutcome { inc, timed_out: true, ..SearchOutcome::default() }
+        } else if threads > 1 && !self.nested && self.work_stealing {
+            self.solve_parallel_ws(
+                &work, sense, &int_vars, &all_sos, root_node, start, inc, threads,
+            )
         } else if threads > 1 && !self.nested {
             self.solve_parallel(&work, sense, &int_vars, &all_sos, root_node, start, inc, threads)
         } else {
@@ -1517,6 +1539,189 @@ impl MilpSolver {
                     None => true,
                     Some(cur) if (obj - cur).abs() <= self.params.absolute_gap => {
                         // Tie: prefer lexicographically smaller primal.
+                        x < merged.inc.x.as_ref().unwrap()
+                    }
+                    Some(cur) => match sense {
+                        Sense::Minimize => obj < cur,
+                        Sense::Maximize => obj > cur,
+                    },
+                };
+                if replace {
+                    merged.inc.obj = Some(obj);
+                    merged.inc.x = Some(x.clone());
+                }
+            }
+        }
+        merged
+    }
+
+    /// Dynamic work-stealing parallel search: pre-expand the root BFS to at
+    /// least `threads` subtree roots, place them on a shared queue, and let
+    /// worker threads steal pending subtrees whenever idle. Each worker runs
+    /// the standard [`MilpSolver::run_search`] on the subtree it steals, so the
+    /// explored tree is identical to the sequential one — only the order of
+    /// subtree evaluation varies — and the merged optimum equals the
+    /// sequential result. Unlike [`MilpSolver::solve_parallel`] (which statically
+    /// partitions the frontier round-robin), idle workers here keep stealing
+    /// until the queue drains, so uneven subtrees are balanced across threads.
+    #[allow(clippy::too_many_arguments)]
+    fn solve_parallel_ws(
+        &self,
+        work: &Model,
+        sense: Sense,
+        int_vars: &[usize],
+        sos: &[SosSet],
+        root_node: Node,
+        start: Instant,
+        mut inc: Incumbent,
+        threads: usize,
+    ) -> SearchOutcome {
+        use std::collections::VecDeque;
+        use std::sync::{Arc, Mutex};
+
+        // Pre-expand the root to at least `threads` subtree roots (the same
+        // BFS expansion as the deterministic search).
+        let mut frontier: Vec<Node> = vec![root_node];
+        let tol = self.params.tolerances;
+        while !frontier.is_empty() && frontier.len() < threads {
+            let node = frontier.remove(0);
+            let lp = solve_lp(work, &node.lb, &node.ub, tol);
+            if lp.status != LpStatus::Optimal {
+                continue;
+            }
+            if let Some((si, lo, mid, hi)) = find_sos_branch(sos, &lp.x, &node, tol.integrality) {
+                let neutral = vec![1.0; work.num_vars];
+                let kl = child_key(
+                    self.selection,
+                    sense,
+                    lp.objective,
+                    &lp.x,
+                    int_vars,
+                    &neutral,
+                    &neutral,
+                );
+                let mut h = BinaryHeap::new();
+                let mut s = Vec::new();
+                push_children(
+                    self.selection,
+                    sense,
+                    sos,
+                    node,
+                    lp.objective,
+                    kl,
+                    kl,
+                    Some((si, lo, mid, hi)),
+                    &mut h,
+                    &mut s,
+                );
+                frontier.extend(h.into_vec());
+                frontier.extend(s);
+                continue;
+            }
+            let cands = self.fractional_candidates(&lp.x, int_vars, tol.integrality);
+            if cands.is_empty() {
+                if feasible_with_sos(sos, work, &lp.x, &node, tol.feasibility) {
+                    inc.consider(lp.objective, lp.x.clone(), sense, self.params.absolute_gap);
+                }
+                continue;
+            }
+            let bv = cands[0];
+            let fv = lp.x[bv];
+            let neutral = vec![1.0; work.num_vars];
+            let key =
+                child_key(self.selection, sense, lp.objective, &lp.x, int_vars, &neutral, &neutral);
+            let mut left = node.clone();
+            left.ub[bv] = fv.floor().min(node.ub[bv]);
+            left.bound = lp.objective;
+            left.key = key;
+            left.depth = node.depth + 1;
+            left.parent = Some((bv, 0, fv - fv.floor()));
+            let mut right = node.clone();
+            right.lb[bv] = fv.ceil().max(node.lb[bv]);
+            right.bound = lp.objective;
+            right.key = key;
+            right.depth = node.depth + 1;
+            right.parent = Some((bv, 1, fv.ceil() - fv));
+            frontier.push(left);
+            frontier.push(right);
+            if frontier.len() > 256 {
+                break;
+            }
+        }
+
+        let queue: Arc<Mutex<VecDeque<Node>>> =
+            Arc::new(Mutex::new(frontier.into_iter().collect()));
+        let mut outcomes: Vec<SearchOutcome> = Vec::new();
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for w in 0..threads {
+                let queue = Arc::clone(&queue);
+                let inc_w = if w == 0 { inc.clone() } else { Incumbent::default() };
+                handles.push(scope.spawn(move || {
+                    let mut local = SearchOutcome {
+                        inc: inc_w,
+                        pseudo_up: vec![1.0; work.num_vars],
+                        pseudo_down: vec![1.0; work.num_vars],
+                        ..SearchOutcome::default()
+                    };
+                    loop {
+                        let node = queue.lock().unwrap().pop_front();
+                        let node = match node {
+                            Some(n) => n,
+                            None => break,
+                        };
+                        let o = self.run_search(
+                            work,
+                            sense,
+                            int_vars,
+                            sos,
+                            vec![node],
+                            local.inc.clone(),
+                            start,
+                        );
+                        local.nodes_explored += o.nodes_explored;
+                        local.timed_out |= o.timed_out;
+                        if let (Some(obj), Some(x)) = (o.inc.obj, &o.inc.x) {
+                            let replace = match local.inc.obj {
+                                None => true,
+                                Some(cur) if (obj - cur).abs() <= self.params.absolute_gap => {
+                                    x < local.inc.x.as_ref().unwrap()
+                                }
+                                Some(cur) => match sense {
+                                    Sense::Minimize => obj < cur,
+                                    Sense::Maximize => obj > cur,
+                                },
+                            };
+                            if replace {
+                                local.inc.obj = Some(obj);
+                                local.inc.x = Some(x.clone());
+                            }
+                        }
+                    }
+                    local
+                }));
+            }
+            for h in handles {
+                if let Ok(o) = h.join() {
+                    outcomes.push(o);
+                }
+            }
+        });
+
+        // Merge exactly like the deterministic search.
+        let mut merged = SearchOutcome {
+            pseudo_up: outcomes.first().map(|o| o.pseudo_up.clone()).unwrap_or_default(),
+            pseudo_down: outcomes.first().map(|o| o.pseudo_down.clone()).unwrap_or_default(),
+            ..SearchOutcome::default()
+        };
+        merged.inc = inc;
+        for o in &outcomes {
+            merged.nodes_explored += o.nodes_explored;
+            merged.timed_out |= o.timed_out;
+            if let (Some(obj), Some(x)) = (o.inc.obj, &o.inc.x) {
+                let replace = match merged.inc.obj {
+                    None => true,
+                    Some(cur) if (obj - cur).abs() <= self.params.absolute_gap => {
                         x < merged.inc.x.as_ref().unwrap()
                     }
                     Some(cur) => match sense {

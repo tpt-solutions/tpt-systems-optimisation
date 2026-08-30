@@ -8,6 +8,13 @@
 //! so equivalent prefixes encountered later are pruned immediately.
 //! Enumeration keeps plain depth-first search — every leaf must be visited
 //! anyway, so backjumping cannot skip solutions.
+//!
+//! Variable ordering is configurable: [`VariableSelection::FirstFail`] (the
+//! default, smallest remaining domain), [`VariableSelection::Impact`]
+//! (highest constraint-degree first — most likely to trigger early
+//! propagation) and [`VariableSelection::Activity`] (VSIDS-style: the variable
+//! implicated in the most failures so far, so the search fails fast on the
+//! contentious decisions).
 
 use std::cell::RefCell;
 use std::vec::Vec;
@@ -23,6 +30,20 @@ pub struct CpSolution {
     pub assignment: Vec<usize>,
 }
 
+/// Variable-selection strategy for the backtracking search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VariableSelection {
+    /// Smallest remaining domain first (the classic first-fail heuristic).
+    #[default]
+    FirstFail,
+    /// Highest constraint-degree first: branch on the most-connected variable
+    /// to maximise early propagation.
+    Impact,
+    /// VSIDS-style activity: branch on the variable most often implicated in
+    /// recent failures, so the search fails fast on contentious decisions.
+    Activity,
+}
+
 /// Bound on recorded no-goods (memory guard).
 const MAX_NOGOODS: usize = 512;
 /// Maximum number of decisions in a recorded no-good.
@@ -34,6 +55,12 @@ struct Ctx<'a> {
     /// Static conflict neighbourhoods: `neighbors[v]` lists the variables
     /// sharing at least one constraint with `v` (sorted, unique).
     neighbors: Vec<Vec<usize>>,
+    /// Constraint-degree of each variable (number of constraints touching it).
+    degree: Vec<usize>,
+    /// Variable-selection strategy.
+    selection: VariableSelection,
+    /// Activity counts (VSIDS), updated on every failure.
+    activity: RefCell<Vec<usize>>,
     /// Recorded failed decision sets; each entry is a set of `(var, value)`
     /// pairs that jointly lead to failure. Interior mutability lets deep
     /// recursion record while sharing the context immutably.
@@ -68,16 +95,51 @@ impl Ctx<'_> {
             store.push(ng);
         }
     }
+
+    /// Bump activity counts for every variable in a failure's conflict set.
+    fn bump(&self, set: &[usize]) {
+        let mut act = self.activity.borrow_mut();
+        for &w in set {
+            act[w] += 1;
+        }
+    }
+
+    /// Choose the next variable to branch on (domain size > 1).
+    fn choose_var(&self, doms: &[Domain]) -> usize {
+        let candidates: Vec<usize> = (0..doms.len()).filter(|&i| doms[i].len() > 1).collect();
+        match self.selection {
+            VariableSelection::FirstFail => {
+                candidates.into_iter().min_by_key(|&i| doms[i].len()).unwrap()
+            }
+            VariableSelection::Impact => {
+                candidates.into_iter().max_by_key(|&i| self.degree[i]).unwrap()
+            }
+            VariableSelection::Activity => {
+                let act = self.activity.borrow();
+                candidates
+                    .into_iter()
+                    .max_by(|&a, &b| {
+                        act[a].cmp(&act[b]).then_with(|| doms[a].len().cmp(&doms[b].len()))
+                    })
+                    .unwrap()
+            }
+        }
+    }
 }
 
-/// Find one solution to `model`, or `None` if infeasible.
+/// Find one solution to `model` with the default (first-fail) ordering.
 pub fn solve(model: &CpModel) -> Option<CpSolution> {
+    solve_with(model, VariableSelection::FirstFail)
+}
+
+/// Find one solution to `model` using `selection` for variable ordering.
+pub fn solve_with(model: &CpModel, selection: VariableSelection) -> Option<CpSolution> {
     let cons = model.constraints();
     let mut doms = model.domains.clone();
     if fixpoint(&mut doms, cons).is_err() {
         return None;
     }
-    let ctx = Ctx { cons, neighbors: build_neighbors(cons), nogoods: RefCell::new(Vec::new()) };
+    let ctx = build_ctx(cons, selection);
     let mut path: Vec<(usize, usize)> = Vec::new();
     match dfs(&mut doms, &mut path, &ctx) {
         Ok(a) => Some(CpSolution { assignment: a }),
@@ -85,38 +147,57 @@ pub fn solve(model: &CpModel) -> Option<CpSolution> {
     }
 }
 
-/// Enumerate up to `limit` solutions.
+/// Enumerate up to `limit` solutions with the default (first-fail) ordering.
 pub fn solutions(model: &CpModel, limit: usize) -> Vec<CpSolution> {
+    solutions_with(model, limit, VariableSelection::FirstFail)
+}
+
+/// Enumerate up to `limit` solutions using `selection` for variable ordering.
+pub fn solutions_with(
+    model: &CpModel,
+    limit: usize,
+    selection: VariableSelection,
+) -> Vec<CpSolution> {
     let mut out = Vec::new();
     let mut doms = model.domains.clone();
     if fixpoint(&mut doms, model.constraints()).is_err() {
         return out;
     }
-    collect(&mut doms, model.constraints(), limit, &mut out);
+    let ctx = build_ctx(model.constraints(), selection);
+    collect(&mut doms, &ctx, limit, &mut out);
     out
 }
 
-/// Static conflict graph from constraint scopes.
-fn build_neighbors(cons: &[Box<dyn Constraint>]) -> Vec<Vec<usize>> {
+/// Build the search context (neighbourhoods, degrees, activity, no-goods).
+fn build_ctx(cons: &[Box<dyn Constraint>], selection: VariableSelection) -> Ctx<'_> {
     let n = cons.iter().flat_map(|c| c.vars().iter().copied()).max().unwrap_or(0) + 1;
-    let mut adj = vec![Vec::new(); n];
+    let mut neighbors = vec![Vec::new(); n];
+    let mut degree = vec![0usize; n];
     for c in cons {
         let vs = c.vars();
         for &a in vs {
             if a >= n {
                 continue;
             }
+            degree[a] += 1;
             for &b in vs {
-                if b != a && !adj[a].contains(&b) {
-                    adj[a].push(b);
+                if b != a && !neighbors[a].contains(&b) {
+                    neighbors[a].push(b);
                 }
             }
         }
     }
-    for list in &mut adj {
+    for list in &mut neighbors {
         list.sort_unstable();
     }
-    adj
+    Ctx {
+        cons,
+        neighbors,
+        degree,
+        selection,
+        activity: RefCell::new(vec![0usize; n]),
+        nogoods: RefCell::new(Vec::new()),
+    }
 }
 
 /// Conflict-directed backjumping DFS.
@@ -134,6 +215,7 @@ fn dfs(
 ) -> Result<Vec<usize>, Vec<usize>> {
     // No-good pruning: this exact decision prefix already failed elsewhere.
     if let Some(vars) = ctx.hit_nogood(path) {
+        ctx.bump(&vars);
         return Err(vars);
     }
 
@@ -152,6 +234,7 @@ fn dfs(
             // conservatively blame the whole path.
             set.extend(path.iter().map(|&(w, _)| w));
         }
+        ctx.bump(&set);
         return Err(set);
     }
 
@@ -174,17 +257,11 @@ fn dfs(
         if set.is_empty() {
             set.extend(path.iter().map(|&(w, _)| w));
         }
+        ctx.bump(&set);
         return Err(set);
     }
 
-    // First-fail: smallest domain > 1.
-    let u = doms
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.len() > 1)
-        .min_by_key(|(_, d)| d.len())
-        .map(|(i, _)| i)
-        .unwrap();
+    let u = ctx.choose_var(doms);
 
     let candidates: Vec<usize> = doms[u].values().to_vec();
     let mut merged: Vec<usize> = Vec::new();
@@ -220,35 +297,25 @@ fn dfs(
     if out.is_empty() {
         out.extend(path.iter().map(|&(w, _)| w));
     }
+    ctx.bump(&out);
     Err(out)
 }
 
-fn collect(
-    doms: &mut [Domain],
-    cons: &[Box<dyn Constraint>],
-    limit: usize,
-    out: &mut Vec<CpSolution>,
-) {
+fn collect(doms: &mut [Domain], ctx: &Ctx, limit: usize, out: &mut Vec<CpSolution>) {
     if out.len() >= limit {
         return;
     }
-    if fixpoint(doms, cons).is_err() {
+    if fixpoint(doms, ctx.cons).is_err() {
         return;
     }
     if doms.iter().all(|d| d.is_singleton()) {
         let assign: Vec<usize> = doms.iter().map(|d| d.value()).collect();
-        if cons.iter().all(|c| c.check(&assign)) {
+        if ctx.cons.iter().all(|c| c.check(&assign)) {
             out.push(CpSolution { assignment: assign });
         }
         return;
     }
-    let var = doms
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.len() > 1)
-        .min_by_key(|(_, d)| d.len())
-        .map(|(i, _)| i)
-        .unwrap();
+    let var = ctx.choose_var(doms);
     let candidates: Vec<usize> = doms[var].values().to_vec();
     for v in candidates {
         if out.len() >= limit {
@@ -256,6 +323,6 @@ fn collect(
         }
         let mut nd = doms.to_vec();
         nd[var].assign(v);
-        collect(&mut nd, cons, limit, out);
+        collect(&mut nd, ctx, limit, out);
     }
 }

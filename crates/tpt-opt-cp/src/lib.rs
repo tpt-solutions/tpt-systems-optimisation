@@ -208,4 +208,95 @@ mod tests {
         assert!(va != vb && vb != vc && va != vc);
         assert!(!solutions(&m, 10).is_empty());
     }
+
+    #[test]
+    fn ac4_reaches_a_sound_fixpoint() {
+        // AC-4 must never remove a value that AC-3 keeps (soundness): every
+        // domain after AC-4 is a superset of the corresponding domain after
+        // AC-3, and both preserve feasibility.
+        let build = || {
+            let mut m = CpModel::new();
+            let a = m.add_var(0, 4);
+            let b = m.add_var(0, 4);
+            let c = m.add_var(0, 4);
+            m.add_constraint(Box::new(Linear::new(vec![(a, 2), (b, 1)], Relation::Eq, 6)));
+            m.add_constraint(Box::new(AllDifferent::new(vec![a, b, c])));
+            m
+        };
+        let mut ac3 = build();
+        let mut ac4 = build();
+        ac3.ac3().expect("feasible");
+        ac4.ac4().expect("feasible");
+        for v in 0..ac3.domains.len() {
+            let d3: std::collections::HashSet<usize> =
+                ac3.domains[v].values().iter().copied().collect();
+            let d4: std::collections::HashSet<usize> =
+                ac4.domains[v].values().iter().copied().collect();
+            assert!(d3.is_superset(&d4), "AC-4 kept a value AC-3 removed at var {v}");
+        }
+        // Both still solve to a valid assignment.
+        let s3 = crate::solver::solve(&ac3).expect("ac3 feasible");
+        let s4 = crate::solver::solve(&ac4).expect("ac4 feasible");
+        let check = |m: &CpModel, s: &crate::solver::CpSolution| {
+            m.constraints().iter().all(|c| c.check(&s.assignment))
+        };
+        assert!(check(&ac3, &s3));
+        assert!(check(&ac4, &s4));
+    }
+
+    #[test]
+    fn ac4_detects_wipeout_as_inconsistency() {
+        let mut m = CpModel::new();
+        let x = m.add_var_values(vec![0]);
+        let y = m.add_var_values(vec![0]);
+        m.add_constraint(Box::new(AllDifferent::new(vec![x, y])));
+        assert!(m.ac4().is_err(), "two vars fixed to the same value");
+    }
+
+    #[test]
+    fn selection_strategies_all_solve_nqueens() {
+        // First-fail, impact and activity must each find a valid 4-queens
+        // placement (the search order differs but the result is a solution).
+        fn build() -> CpModel {
+            let n = 4usize;
+            let mut m = CpModel::new();
+            let cols: Vec<usize> = (0..n).map(|_| m.add_var(0, n - 1)).collect();
+            m.add_constraint(Box::new(AllDifferent::new(cols.clone())));
+            let mut diag1 = Vec::new();
+            let mut diag2 = Vec::new();
+            for (row, &c) in cols.iter().enumerate() {
+                let d1 = m.add_var(0, 2 * n);
+                m.add_constraint(Box::new(Linear::new(
+                    vec![(c, 1), (d1, -1)],
+                    Relation::Eq,
+                    (row as i64) - (n as i64),
+                )));
+                let d2 = m.add_var(0, 2 * n);
+                m.add_constraint(Box::new(Linear::new(
+                    vec![(c, 1), (d2, -1)],
+                    Relation::Eq,
+                    -(row as i64),
+                )));
+                diag1.push(d1);
+                diag2.push(d2);
+            }
+            m.add_constraint(Box::new(AllDifferent::new(diag1)));
+            m.add_constraint(Box::new(AllDifferent::new(diag2)));
+            m
+        }
+        use crate::solver::{solve_with, VariableSelection};
+        for sel in
+            [VariableSelection::FirstFail, VariableSelection::Impact, VariableSelection::Activity]
+        {
+            let m = build();
+            let sol = solve_with(&m, sel).expect("4-queens has a solution");
+            for i in 0..4 {
+                for j in (i + 1)..4 {
+                    let ci = sol.assignment[i] as i64;
+                    let cj = sol.assignment[j] as i64;
+                    assert_ne!((ci - cj).abs(), (j as i64 - i as i64).abs());
+                }
+            }
+        }
+    }
 }

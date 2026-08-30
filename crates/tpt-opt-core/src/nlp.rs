@@ -1,26 +1,29 @@
 //! Constrained nonlinear programming via an augmented-Lagrangian (AL) solver.
 //!
-//! The published `tpt-math-optimize-general` crate only ships *unconstrained*
-//! minimizers (gradient descent / conjugate gradient / Newton). The optimisation
-//! crates (`tpt-opt-minlp`, `tpt-opt-network` AC-OPF) were built against the old
-//! dev-shim's constrained-NLP surface (`solve_nlp` / `NlpProblem` /
-//! `NlpParams` / `NlpResult` / `NlpStatus`), which is vendored here so the
-//! workspace stays publishable against the published `tpt-math-*` crates.
-//!
 //! [`solve_nlp`] minimises an objective `f(x)` subject to inequality
 //! constraints `c_i(x) <= 0` and equality constraints `h_j(x) = 0` using the
 //! standard augmented-Lagrangian method: each outer iteration solves the
 //! unconstrained subproblem
 //!
 //! ```text
-//! L(x) = f(x) + Σ (λ_i c_i(x) + ρ/2 c_i(x)²) + Σ (μ_j h_j(x) + ρ/2 h_j(x)²)
+//! L(x) = f(x) + Σ (λ_i·max(0,c_i(x)) + ½·ρ·max(0,c_i(x))²)
+//!            + Σ (μ_j·h_j(x) + ½·ρ·h_j(x)²)
 //! ```
 //!
 //! with the conjugate-gradient minimizer from `tpt-math-optimize-general`, then
-//! updates the Lagrange multipliers and (if needed) the penalty `ρ`. The inner
-//! subproblem gradient is built analytically from [`NlpProblem::ineq_grad`] /
-//! [`NlpProblem::eq_grad`] when provided, and falls back to central finite
-//! differences otherwise.
+//! updates the Lagrange multipliers and (if needed) the penalty `ρ`. Inequality
+//! constraints only contribute to the penalty when violated (`max(0,·)`), which
+//! is the correct Rockafellar form; applying the quadratic term for satisfied
+//! constraints instead corrupts the solution. The inner subproblem gradient is
+//! built analytically from [`NlpProblem::ineq_grad`] / [`NlpProblem::eq_grad`]
+//! when provided, and falls back to central finite differences otherwise.
+//!
+//! Multipliers and the penalty are only updated after a *settled* inner solve
+//! (gradient tolerance met), with a stall counter that forces progress when the
+//! inner solver repeatedly fails to settle — this prevents multiplier blow-up
+//! from truncated solves. Convergence additionally requires a complementarity
+//! check (`λ·|c| ≈ 0`): without it a degenerate AL fixed point where a multiplier
+//! cancels the objective gradient on a slack constraint masquerades as optimal.
 
 use alloc::string::String;
 use alloc::vec;
@@ -81,6 +84,8 @@ pub struct NlpParams {
     pub max_inner: usize,
     /// Initial quadratic penalty `ρ`.
     pub rho_init: f64,
+    /// Penalty growth factor applied after each settled outer iteration.
+    pub rho_growth: f64,
     /// Upper bound on the penalty `ρ`.
     pub rho_max: f64,
 }
@@ -88,11 +93,12 @@ pub struct NlpParams {
 impl Default for NlpParams {
     fn default() -> Self {
         NlpParams {
-            tol: 1e-7,
+            tol: 1e-6,
             max_outer: 25,
-            max_inner: 400,
-            rho_init: 1.0,
-            rho_max: 1e8,
+            max_inner: 350,
+            rho_init: 10.0,
+            rho_growth: 8.0,
+            rho_max: 1e12,
         }
     }
 }
@@ -137,12 +143,113 @@ fn fd_grad(n: usize, f: impl Fn(&[f64]) -> f64, x: &[f64], g: &mut [f64]) {
 fn max_violation<P: NlpProblem>(prob: &P, x: &[f64]) -> f64 {
     let mut v = 0.0f64;
     for i in 0..prob.num_ineq() {
-        v = v.max(prob.ineq(i, x));
+        v = v.max(prob.ineq(i, x).max(0.0));
     }
     for j in 0..prob.num_eq() {
         v = v.max(prob.eq(j, x).abs());
     }
     v
+}
+
+/// Self-contained BFGS unconstrained minimizer (alloc only), mirroring the
+/// dev-shim's proven inner solver. Uses a normalised search direction and an
+/// Armijo line search, and reports whether the gradient tolerance was reached
+/// (`settled`) plus the infinity-norm of the final gradient (`grad_inf`).
+fn bfgs_minimize(
+    cost: impl Fn(&[f64]) -> f64,
+    grad: impl Fn(&[f64]) -> Vec<f64>,
+    x0: &[f64],
+    max_inner: usize,
+    tol: f64,
+) -> (Vec<f64>, bool, f64) {
+    let n = x0.len();
+    if n == 0 {
+        return (Vec::new(), true, 0.0);
+    }
+    let mut x = x0.to_vec();
+    let mut inv_hess = vec![0.0f64; n * n];
+    for i in 0..n {
+        inv_hess[i * n + i] = 1.0;
+    }
+
+    let mut settled = false;
+    let mut grad_inf = 0.0f64;
+    for _ in 0..max_inner {
+        let f = cost(&x);
+        let g = grad(&x);
+        if g.iter().map(|v| v * v).sum::<f64>() < tol * tol {
+            settled = true;
+            grad_inf = g.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+            break;
+        }
+        // d = -inv_hess * g, normalised by its infinity norm.
+        let mut d = vec![0.0f64; n];
+        for i in 0..n {
+            for k in 0..n {
+                d[i] += inv_hess[i * n + k] * g[k];
+            }
+            d[i] = -d[i];
+        }
+        let dnorm_inf = d.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+        if dnorm_inf > 0.0 {
+            let inv = 1.0 / dnorm_inf;
+            for v in d.iter_mut() {
+                *v *= inv;
+            }
+        }
+        // Armijo line search.
+        let mut step = 1.0;
+        let mut improved = false;
+        let mut nx: Vec<f64>;
+        for _ls in 0..30 {
+            nx = (0..n).map(|k| x[k] + step * d[k]).collect();
+            if cost(&nx) <= f - 1e-4 * step * dot(&g, &d) {
+                let gnew = grad(&nx);
+                let mut y_vec = vec![0.0f64; n];
+                for k in 0..n {
+                    y_vec[k] = gnew[k] - g[k];
+                }
+                bfgs_update(&mut inv_hess, &d, &y_vec, step);
+                x = nx;
+                improved = true;
+                break;
+            }
+            step *= 0.5;
+        }
+        if !improved {
+            grad_inf = g.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+            break;
+        }
+        grad_inf = g.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+    }
+    (x, settled, grad_inf)
+}
+
+fn bfgs_update(h: &mut [f64], d: &[f64], y: &[f64], step: f64) {
+    let n = d.len();
+    let mut s = vec![0.0f64; n];
+    for i in 0..n {
+        s[i] = step * d[i];
+    }
+    let ys = dot(y, &s).max(1e-12);
+    let mut hy = vec![0.0f64; n];
+    for i in 0..n {
+        for k in 0..n {
+            hy[i] += h[i * n + k] * y[k];
+        }
+    }
+    let yhy = dot(y, &hy);
+    for i in 0..n {
+        for j in 0..n {
+            let term1 = (hy[i] * s[j] + s[i] * hy[j]) / ys;
+            let term2 = (yhy / (ys * ys)) * s[i] * s[j];
+            h[i * n + j] += term1 - term2;
+        }
+    }
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
 /// Solve the constrained NLP defined by `prob` starting from `x0`.
@@ -155,43 +262,53 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
     let me = prob.num_eq();
     let mut x = x0.to_vec();
     let mut lambda = vec![0.0f64; mi];
-    let mut mu = vec![0.0f64; me];
+    let mut nu = vec![0.0f64; me];
     let mut rho = params.rho_init.max(1e-3);
     let tol = params.tol.max(1e-10);
+    let rho_growth = params.rho_growth.max(1.0);
+    let rho_max = params.rho_max.max(rho);
     let max_outer = params.max_outer.max(1);
 
-    let mut prev_viol = f64::INFINITY;
+    let mut status = NlpStatus::MaxIters;
+    let mut prev_x: Option<Vec<f64>> = None;
+    let mut stalled_outers = 0usize;
     let mut outer = 0;
-    while outer < max_outer {
-        let cost = |p: &DVector<f64>| -> f64 {
+
+    for _ in 0..max_outer {
+        outer += 1;
+        // Minimise the augmented Lagrangian (with clamped inequality terms)
+        // using the published conjugate-gradient solver.
+        let al_cost = |p: &DVector<f64>| -> f64 {
             let xv: Vec<f64> = (0..n).map(|k| p[k]).collect();
-            let mut l = prob.objective(&xv);
+            let mut val = prob.objective(&xv);
             for (i, &lam) in lambda.iter().enumerate() {
-                let c = prob.ineq(i, &xv);
-                l += lam * c + 0.5 * rho * c * c;
+                let c = prob.ineq(i, &xv).max(0.0);
+                val += lam * c + 0.5 * rho * c * c;
             }
-            for (j, &mj) in mu.iter().enumerate() {
-                let h = prob.eq(j, &xv);
-                l += mj * h + 0.5 * rho * h * h;
+            for (j, &nj) in nu.iter().enumerate() {
+                let c = prob.eq(j, &xv);
+                val += nj * c + 0.5 * rho * c * c;
             }
-            l
+            val
         };
-        let grad = |p: &DVector<f64>| -> DVector<f64> {
+        let al_grad = |p: &DVector<f64>| -> DVector<f64> {
             let xv: Vec<f64> = (0..n).map(|k| p[k]).collect();
             let mut g = vec![0.0f64; n];
             prob.objective_grad(&xv, &mut g);
             for (i, &lam) in lambda.iter().enumerate() {
-                let c = prob.ineq(i, &xv);
-                let coeff = lam + rho * c;
-                let mut row = vec![0.0f64; n];
-                prob.ineq_grad(i, &xv, &mut row);
-                for k in 0..n {
-                    g[k] += coeff * row[k];
+                let c = prob.ineq(i, &xv).max(0.0);
+                if c > 0.0 {
+                    let coeff = lam + rho * c;
+                    let mut row = vec![0.0f64; n];
+                    prob.ineq_grad(i, &xv, &mut row);
+                    for k in 0..n {
+                        g[k] += coeff * row[k];
+                    }
                 }
             }
-            for (j, &mj) in mu.iter().enumerate() {
-                let h = prob.eq(j, &xv);
-                let coeff = mj + rho * h;
+            for (j, &nj) in nu.iter().enumerate() {
+                let c = prob.eq(j, &xv);
+                let coeff = nj + rho * c;
                 let mut row = vec![0.0f64; n];
                 prob.eq_grad(j, &xv, &mut row);
                 for k in 0..n {
@@ -202,51 +319,116 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
         };
 
         let init = DVector::from_vec(x.clone());
-        let init_fb = init.clone();
-        let opts = Options::new(params.max_inner as u64).with_gradient_tolerance(tol * 0.1);
-        let sol = minimize_conjugate_gradient_with(cost, grad, init, &opts)
-            .unwrap_or_else(|_| Solution {
-                param: init_fb,
-                cost: f64::INFINITY,
-                iters: 0,
-                converged: false,
-                termination: String::new(),
+        let opts = Options::new(params.max_inner as u64).with_gradient_tolerance(tol);
+        let sol =
+            minimize_conjugate_gradient_with(al_cost, al_grad, init, &opts).unwrap_or_else(|_| {
+                Solution {
+                    param: DVector::from_vec(x.clone()),
+                    cost: f64::INFINITY,
+                    iters: 0,
+                    converged: false,
+                    termination: String::new(),
+                }
             });
-        x = (0..n).map(|k| sol.param[k]).collect();
+        // The published conjugate-gradient solver is the primary inner solver.
+        // When it does not settle (gradient tolerance unmet) the augmented
+        // Lagrangian subproblem is often non-convex, so we also run the
+        // quasi-Newton BFGS minimizer and keep whichever reaches the lower
+        // augmented-Lagrangian value; BFGS frequently escapes CG's local minima
+        // on these subproblems and is what makes the OA/SQP tests converge.
+        let cg_x: Vec<f64> = (0..n).map(|k| sol.param[k]).collect();
+        let cg_cost = al_cost(&DVector::from_vec(cg_x.clone()));
+        let al_cost_slice = |v: &[f64]| -> f64 { al_cost(&DVector::from_vec(v.to_vec())) };
+        let al_grad_slice = |v: &[f64]| -> Vec<f64> {
+            al_grad(&DVector::from_vec(v.to_vec())).iter().cloned().collect()
+        };
+        let (bfgs_x, bfgs_settled, _) =
+            bfgs_minimize(al_cost_slice, al_grad_slice, &x.clone(), params.max_inner, tol);
+        let bfgs_cost = al_cost(&DVector::from_vec(bfgs_x.clone()));
+        let (chosen, settled) = if sol.converged && (!bfgs_settled || cg_cost <= bfgs_cost) {
+            (cg_x, true)
+        } else {
+            (bfgs_x, bfgs_settled)
+        };
+        x = chosen;
 
-        let viol = max_violation(prob, &x);
-        for (i, lam) in lambda.iter_mut().enumerate() {
-            *lam = (*lam + rho * prob.ineq(i, &x)).max(0.0);
+        // Infinity-norm of the AL gradient at the returned point (for the
+        // scaled-KKT convergence proxy).
+        let grad_inf = {
+            let xv: Vec<f64> = x.clone();
+            let mut g = vec![0.0f64; n];
+            prob.objective_grad(&xv, &mut g);
+            for (i, &lam) in lambda.iter().enumerate() {
+                let c = prob.ineq(i, &xv).max(0.0);
+                if c > 0.0 {
+                    let coeff = lam + rho * c;
+                    let mut row = vec![0.0f64; n];
+                    prob.ineq_grad(i, &xv, &mut row);
+                    for k in 0..n {
+                        g[k] += coeff * row[k];
+                    }
+                }
+            }
+            for (j, &nj) in nu.iter().enumerate() {
+                let c = prob.eq(j, &xv);
+                let coeff = nj + rho * c;
+                let mut row = vec![0.0f64; n];
+                prob.eq_grad(j, &xv, &mut row);
+                for k in 0..n {
+                    g[k] += coeff * row[k];
+                }
+            }
+            g.iter().fold(0.0f64, |a, v| a.max(v.abs()))
+        };
+
+        let max_viol = max_violation(prob, &x);
+
+        // Multiplier/penalty updates only after a settled inner solve (or once
+        // the inner loop has stalled enough times to force progress).
+        if settled || stalled_outers >= 3 {
+            for (i, lam) in lambda.iter_mut().enumerate() {
+                *lam += rho * prob.ineq(i, &x).max(0.0);
+            }
+            for (j, nj) in nu.iter_mut().enumerate() {
+                *nj += rho * prob.eq(j, &x);
+            }
+            stalled_outers = 0;
+            rho = (rho * rho_growth).min(rho_max);
+        } else {
+            stalled_outers += 1;
         }
-        for (j, mj) in mu.iter_mut().enumerate() {
-            *mj += rho * prob.eq(j, &x);
+
+        // Complementarity: a multiplier may only be positive on a (near-)active
+        // constraint.
+        let mut compl = 0.0f64;
+        for (i, &lam) in lambda.iter().enumerate() {
+            compl = compl.max(lam * prob.ineq(i, &x).abs());
         }
-        if viol > 0.25 * prev_viol {
-            rho = (rho * 10.0).min(params.rho_max);
+        for (j, &nj) in nu.iter().enumerate() {
+            compl = compl.max(nj.abs() * prob.eq(j, &x).abs());
         }
-        prev_viol = viol;
-        outer += 1;
-        if viol < tol {
+        let mult_scale =
+            lambda.iter().chain(nu.iter()).fold(0.0f64, |a, v| a.max(v.abs())).max(1.0);
+        let kkt_scaled = grad_inf / (mult_scale + rho * max_viol);
+        let comp_ok = compl <= 1e-6 * (1.0 + mult_scale);
+
+        let moved = match &prev_x {
+            Some(p) => p.iter().zip(&x).map(|(a, b)| (a - b).abs()).fold(0.0f64, f64::max),
+            None => f64::INFINITY,
+        };
+
+        if max_viol < tol
+            && comp_ok
+            && (settled || moved <= tol.max(1e-9) || (grad_inf < 1e-2 && kkt_scaled < tol))
+        {
+            status = NlpStatus::Converged;
             break;
         }
+        prev_x = Some(x.clone());
     }
-
-    let final_viol = max_violation(prob, &x);
-    let status = if final_viol < tol {
-        NlpStatus::Converged
-    } else if outer >= max_outer {
-        NlpStatus::Diverged
-    } else {
-        NlpStatus::MaxIters
-    };
 
     let objective = prob.objective(&x);
-    NlpResult {
-        x,
-        objective,
-        status,
-        iterations: outer,
-    }
+    NlpResult { x, objective, status, iterations: outer }
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_prob::Rng;
+use tpt_math_prob::sampler::Rng;
 use tpt_opt_core::solver::Solver;
 use tpt_opt_core::SolverStatus;
 use tpt_opt_milp::MilpSolver;
@@ -98,7 +98,7 @@ fn multi_stage_tree_matches_two_stage() {
 /// f(x) = 2x + 8·E[(d−x)⁺] = 2x + 2(4−x)² → x* = 3.5, f* = 7.5.
 #[test]
 fn saa_recovers_true_optimum_within_confidence() {
-    let draw = |rng: &mut tpt_math_prob::Xoshiro256| vec![2.0 + 2.0 * rng.next_f64()];
+    let draw = |rng: &mut tpt_math_prob::sampler::SplitMix64| vec![2.0 + 2.0 * rng.next_f64()];
     let evaluate = |x: &[f64], d: &Vec<f64>| 2.0 * x[0] + 8.0 * (d[0] - x[0]).max(0.0);
     let solve_sampled = |sample: &[Vec<f64>]| -> Result<(Vec<f64>, f64), String> {
         // Deterministic 1-D grid minimisation of the sample average.

@@ -1,14 +1,12 @@
-//! Sparse constraint-matrix conversions compatible with `tpt-math-linalg`.
+//! Sparse constraint-matrix conversions compatible with `tpt-math-linalg-sparse`.
 //!
 //! The constraint matrix is assembled from a [`crate::model::Model`]'s linear
-//! rows into the `CsrMatrix` / `CscMatrix` types exposed by `tpt-math-linalg`,
-//! so downstream solver crates (and external bindings such as HiGHS) can ingest
-//! the canonical form without re-implementing sparse assembly.
+//! rows into the `CsrMatrix` / `CscMatrix` types exposed by
+//! `tpt-math-linalg-sparse`, so downstream solver crates (and external bindings
+//! such as HiGHS) can ingest the canonical form without re-implementing sparse
+//! assembly.
 
-use alloc::vec;
-use alloc::vec::Vec;
-
-use tpt_math_linalg::{CscMatrix, CsrMatrix, Triplet};
+use tpt_math_linalg_sparse::{CooMatrix, CscMatrix, CsrMatrix};
 
 use crate::model::Model;
 
@@ -18,33 +16,29 @@ use crate::model::Model;
 /// `j`. Custom-tagged rows are skipped (they are not representable as a fixed
 /// sparse row and are handled by the solver's custom-constraint path).
 pub fn model_to_csr(model: &Model) -> CsrMatrix<f64> {
-    let mut triplets = Vec::with_capacity(model.constraints.iter().map(|c| c.indices.len()).sum());
+    let mut coo = CooMatrix::new(model.constraints.len(), model.num_vars);
     for (r, c) in model.constraints.iter().enumerate() {
         if c.is_custom {
             continue;
         }
         for (&i, &v) in c.indices.iter().zip(c.coeffs.iter()) {
-            triplets.push(Triplet::new(r, i, v));
+            coo.push(r, i, v);
         }
     }
-    CsrMatrix::from_triplets(model.constraints.len(), model.num_vars, &triplets)
+    coo.to_csr()
 }
 
 /// Build the CSC constraint matrix for a model's linear constraints.
 ///
-/// Convenience wrapper: assembles CSR then transposes to CSC, reusing the
-/// `tpt-math-linalg` transpose routine.
+/// Convenience wrapper: assembles CSR then converts to CSC via the
+/// `tpt-math-linalg-sparse` conversion routines.
 pub fn model_to_csc(model: &Model) -> CscMatrix<f64> {
     let csr = model_to_csr(model);
-    let mut triplets = Vec::with_capacity(csr.values().len());
-    for r in 0..csr.nrows() {
-        let start = csr.row_ptr()[r];
-        let end = csr.row_ptr()[r + 1];
-        for k in start..end {
-            triplets.push(Triplet::new(csr.col_ind()[k], r, csr.values()[k]));
-        }
+    let mut coo = CooMatrix::new(csr.nrows(), csr.ncols());
+    for (r, c, v) in csr.iter() {
+        coo.push(r, c, *v);
     }
-    CscMatrix::from_triplets(csr.nrows(), csr.ncols(), &triplets)
+    coo.to_csc()
 }
 
 /// Holds both the CSR and CSC views of a model's constraint matrix.
@@ -59,16 +53,17 @@ pub struct ConstraintMatrix {
 impl ConstraintMatrix {
     /// Assemble both views from a model.
     pub fn from_model(model: &Model) -> Self {
-        let csr = model_to_csr(model);
-        let mut triplets = vec![];
-        for r in 0..csr.nrows() {
-            let start = csr.row_ptr()[r];
-            let end = csr.row_ptr()[r + 1];
-            for k in start..end {
-                triplets.push(Triplet::new(csr.col_ind()[k], r, csr.values()[k]));
+        let mut coo = CooMatrix::new(model.constraints.len(), model.num_vars);
+        for (r, c) in model.constraints.iter().enumerate() {
+            if c.is_custom {
+                continue;
+            }
+            for (&i, &v) in c.indices.iter().zip(c.coeffs.iter()) {
+                coo.push(r, i, v);
             }
         }
-        let csc = CscMatrix::from_triplets(csr.nrows(), csr.ncols(), &triplets);
+        let csr = coo.to_csr();
+        let csc = coo.to_csc();
         Self { csr, csc }
     }
 }

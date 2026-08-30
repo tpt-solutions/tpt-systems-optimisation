@@ -127,3 +127,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.84
       - run: cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture
+
+  benchmark-corpus:
+    # Fetch the curated Netlib/MIPLIB fixtures via xtask (outside every crate
+    # directory, gitignored, never packaged) and run the corpus integration
+    # tests against the published optima. Non-blocking: the downloads come
+    # from third-party mirrors and may flake independently of code health.
+    name: benchmark corpus (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.84
+      - run: cargo xtask fetch-fixtures
+      - run: cargo test -p tpt-opt-milp --test benchmark_corpus -- --nocapture

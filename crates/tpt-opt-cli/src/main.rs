@@ -213,7 +213,7 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, String> {
                 let v = it.next().ok_or("--time-limit needs a value (seconds)")?;
                 o.time_limit =
                     Some(v.parse::<f64>().map_err(|_| format!("invalid --time-limit `{v}`"))?);
-                if o.time_limit.is_some_and(|t| !(t > 0.0)) {
+                if o.time_limit.is_some_and(|t| t <= 0.0 || t.is_nan()) {
                     return Err("--time-limit must be positive".into());
                 }
             }

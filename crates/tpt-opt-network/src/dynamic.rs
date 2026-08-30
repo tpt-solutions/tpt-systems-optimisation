@@ -8,7 +8,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_graph::Graph;
+use tpt_opt_core::graph::Graph;
 use tpt_opt_core::{SolverStatus, Tolerances};
 
 use crate::min_cost_flow::{min_cost_flow, MinCostFlowResult};

@@ -6,7 +6,7 @@
 //! aspiration criterion (beating the global best). Long stagnation triggers
 //! diversification (random restart), realising intensification/diversification.
 
-use tpt_math_prob::Xoshiro256;
+use tpt_math_prob::sampler::SplitMix64;
 use tpt_opt_core::{
     Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
 };
@@ -15,7 +15,7 @@ use crate::history::ConvergenceHistory;
 use crate::neighborhood::{CoordinateNeighborhood, TabuNeighborhood};
 use crate::problem::{random_point, Objective};
 use crate::result::HeuristicResult;
-use crate::rng::Rng;
+use crate::rng::RngExt;
 use crate::ModelObjective;
 
 /// Tabu search solver.
@@ -32,7 +32,7 @@ pub struct TabuSearch {
     initial: Option<Vec<f64>>,
     target: Option<f64>,
     seed: u64,
-    rng: Xoshiro256,
+    rng: SplitMix64,
     history: ConvergenceHistory,
 }
 
@@ -50,7 +50,7 @@ impl TabuSearch {
             initial: None,
             target: None,
             seed: 0,
-            rng: Xoshiro256::new(0),
+            rng: SplitMix64::seed_from_u64(0),
             history: ConvergenceHistory::new(),
         }
     }
@@ -108,7 +108,7 @@ impl TabuSearch {
     /// Set the deterministic seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
-        self.rng = Xoshiro256::new(seed);
+        self.rng = SplitMix64::seed_from_u64(seed);
         self
     }
 
@@ -231,7 +231,7 @@ impl Solver<Model> for TabuSearch {
     fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
         if let Some(seed) = param.seed {
             self.seed = seed;
-            self.rng = Xoshiro256::new(seed);
+            self.rng = SplitMix64::seed_from_u64(seed);
         }
         Ok(())
     }

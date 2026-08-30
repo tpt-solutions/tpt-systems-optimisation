@@ -22,7 +22,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
     tpt-opt-core = { workspace = true }
-    tpt-math-linalg = { workspace = true }
+    tpt-math-linalg-sparse = { workspace = true }
     highs = { version = "2.4", optional = true }
 
 [features]
@@ -31,4 +31,4 @@ std = []
 # Optional external-solver binding: HiGHS (MIT) as an alternate `Solver`
 # implementation. Requires a C++ build toolchain (cmake + MSVC/gcc/clang)
 # because `highs-sys` compiles HiGHS from source.
-highs = ["dep:highs"]
+    highs = ["dep:highs"]

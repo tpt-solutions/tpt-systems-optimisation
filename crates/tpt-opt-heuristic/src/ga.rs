@@ -6,11 +6,11 @@
 //! implemented as generic functions over the [`Gene`] trait, so custom genomes
 //! can be plugged in by implementing `Gene` + `Genome`.
 //!
-//! Determinism: all randomness flows through a seeded [`Xoshiro256`].
+//! Determinism: all randomness flows through a seeded [`SplitMix64`].
 
 use std::cmp::Ordering;
 
-use tpt_math_prob::Xoshiro256;
+use tpt_math_prob::sampler::SplitMix64;
 use tpt_opt_core::{
     Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
 };
@@ -18,7 +18,7 @@ use tpt_opt_core::{
 use crate::history::ConvergenceHistory;
 use crate::problem::Objective;
 use crate::result::HeuristicResult;
-use crate::rng::Rng;
+use crate::rng::{Rng, RngExt};
 use crate::ModelObjective;
 
 /// A single gene in a [`Genome`].
@@ -438,7 +438,7 @@ pub struct GeneticAlgorithm<G: Genome> {
     selection: SelectionKind,
     target: Option<f64>,
     seed: u64,
-    rng: Xoshiro256,
+    rng: SplitMix64,
     history: ConvergenceHistory,
 }
 
@@ -468,7 +468,7 @@ impl<G: Genome> GeneticAlgorithm<G> {
             selection: SelectionKind::Tournament(3),
             target: None,
             seed: 0,
-            rng: Xoshiro256::new(0),
+            rng: SplitMix64::seed_from_u64(0),
             history: ConvergenceHistory::new(),
         }
     }
@@ -531,7 +531,7 @@ impl<G: Genome> GeneticAlgorithm<G> {
     /// Set the deterministic seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
-        self.rng = Xoshiro256::new(seed);
+        self.rng = SplitMix64::seed_from_u64(seed);
         self
     }
 
@@ -688,7 +688,7 @@ impl Solver<Model> for GeneticAlgorithm<Vec<f64>> {
     fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
         if let Some(seed) = param.seed {
             self.seed = seed;
-            self.rng = Xoshiro256::new(seed);
+            self.rng = SplitMix64::seed_from_u64(seed);
         }
         Ok(())
     }
@@ -731,7 +731,7 @@ mod tests {
     fn crossover_operators_valid() {
         let a = vec![0usize, 1, 2, 3, 4];
         let b = vec![4usize, 3, 2, 1, 0];
-        let mut rng = Xoshiro256::new(1);
+        let mut rng = SplitMix64::seed_from_u64(1);
         for kind in [
             CrossoverKind::SinglePoint,
             CrossoverKind::TwoPoint,
@@ -751,7 +751,7 @@ mod tests {
     #[test]
     fn mutation_operators_valid() {
         let bounds = vec![(0.0, 1.0); 6];
-        let mut rng = Xoshiro256::new(2);
+        let mut rng = SplitMix64::seed_from_u64(2);
         for kind in [
             MutationKind::BitFlip,
             MutationKind::Flip,
@@ -771,7 +771,7 @@ mod tests {
     #[test]
     fn selection_indices_in_range() {
         let fitness = vec![1.0, 3.0, 2.0, 0.5, 4.0];
-        let mut rng = Xoshiro256::new(3);
+        let mut rng = SplitMix64::seed_from_u64(3);
         for kind in [SelectionKind::Tournament(3), SelectionKind::Roulette, SelectionKind::Rank] {
             for _ in 0..200 {
                 let i = select_index(&fitness, kind, &mut rng);

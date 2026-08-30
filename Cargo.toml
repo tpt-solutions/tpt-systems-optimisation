@@ -31,22 +31,22 @@ tpt-opt-robust = { path = "crates/tpt-opt-robust", version = "0.1.0" }
 tpt-opt-decompose = { path = "crates/tpt-opt-decompose", version = "0.1.0" }
 tpt-opt-systems = { path = "crates/tpt-opt-systems", version = "0.1.0" }
 
-# Local development shims for the not-yet-published tpt-math workspace.
-# These mirror the API surface of the sibling `tpt-math` repo and are wired
-# as path deps for local dev. Swap to version deps once `tpt-math` publishes.
-tpt-math-linalg = { path = "deps/tpt-math-linalg", version = "0.1.0" }
-tpt-math-linalg-complex = { path = "deps/tpt-math-linalg-complex", version = "0.1.0" }
-tpt-math-graph = { path = "deps/tpt-math-graph", version = "0.1.0" }
-tpt-math-numeric = { path = "deps/tpt-math-numeric", version = "0.1.0" }
-tpt-math-prob = { path = "deps/tpt-math-prob", version = "0.1.0" }
-tpt-math-optimize-convex = { path = "deps/tpt-math-optimize-convex", version = "0.1.0" }
-tpt-math-optimize-general = { path = "deps/tpt-math-optimize-general", version = "0.1.0" }
+# Published `tpt-math` crates (crates.io). The optimisation crates now depend
+# on these directly. Sparse matrices come from `tpt-math-linalg-sparse`
+# (the original shims named the sparse crate `tpt-math-linalg`); `tpt-math-numeric`
+# / `tpt-math-linalg-complex` shims are no longer required (the only shim helper
+# the solvers used, `is_integer`, is now defined locally in `tpt-opt-core`).
+tpt-math-linalg-sparse = "0.1.0"
+tpt-math-graph = "0.1.0"
+tpt-math-prob = "0.1.0"
+tpt-math-optimize-convex = "0.1.0"
+tpt-math-optimize-general = "0.1.0"
 
 # Common external dependencies
 thiserror = "2.0"
 # `default-features = false` keeps dependents no_std-compatible; members may
 # opt back into std explicitly if ever needed.
-serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 
 [profile.release]
 opt-level = 3

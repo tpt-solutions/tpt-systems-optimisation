@@ -214,7 +214,7 @@ impl NetworkFlowBuilder {
     /// Build the graph and run the successive-shortest-path min-cost-flow
     /// solver, wrapping failures in [`OptimizationError`].
     pub fn solve(self) -> Result<tpt_opt_network::MinCostFlowResult, OptimizationError> {
-        use tpt_math_graph::{Edge, Graph};
+        use tpt_opt_core::graph::{Edge, Graph};
         let mut g = Graph::new(self.num_nodes);
         for (from, to, capacity, cost) in &self.edges {
             g.add_edge(Edge::new(*from, *to, *capacity, *cost));

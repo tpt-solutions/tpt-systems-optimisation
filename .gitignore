@@ -20,3 +20,4 @@ Cargo.lock
 /tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
 /tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
 /tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)
+/tests/fixtures/ # downloaded benchmark corpus (cargo xtask fetch-fixtures)

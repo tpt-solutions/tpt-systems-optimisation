@@ -21,7 +21,7 @@
 //!
 //! # Reproducibility (spec, section 4)
 //!
-//! Every heuristic accepts a deterministic seed via [`rng::Xoshiro256`] (re-exported
+//! Every heuristic accepts a deterministic seed via [`rng::SplitMix64`] (re-exported
 //! from `tpt-math-prob`). Two runs with the same seed produce byte-identical
 //! results. Custom neighborhoods and operator closures are supported through
 //! trait objects.
@@ -70,5 +70,5 @@ pub use neighborhood::{GaussianNeighborhood, Neighborhood, NeighborhoodFn, TabuN
 pub use problem::{ModelObjective, Objective, ObjectiveFn};
 pub use pso::{InertiaSchedule, ParticleSwarmOptimization, Topology};
 pub use result::HeuristicResult;
-pub use rng::{rng_from_seed, Rng, Xoshiro256};
+pub use rng::{rng_from_seed, Rng, SplitMix64};
 pub use tabu::TabuSearch;

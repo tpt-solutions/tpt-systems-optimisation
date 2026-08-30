@@ -16,7 +16,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_optimize_general::NlpParams;
+use tpt_opt_core::nlp::{NlpParams, NlpStatus};
 use tpt_opt_core::{
     bounds::VarBound,
     model::{Constraint, Model, Objective},
@@ -143,11 +143,11 @@ pub fn outer_approximate(model: &MinlpModel, cfg: &OaConfig) -> OaResult {
             })
             .collect();
         let res = solve_subproblem(model, &ys, &cfg.nlp);
-        let feas = res.status == tpt_math_optimize_general::NlpStatus::Converged
+        let feas = res.status == NlpStatus::Converged
             && crate::subproblem::max_violation(model, &ys, &res.x) < 1e-4;
 
         if !feas {
-            if res.status == tpt_math_optimize_general::NlpStatus::Diverged {
+            if res.status == NlpStatus::Diverged {
                 status = OaStatus::NumericalIssue;
                 break;
             }

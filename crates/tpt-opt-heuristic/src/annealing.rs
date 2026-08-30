@@ -5,7 +5,7 @@
 //! Cooling schedules are configurable and the whole search is deterministic for
 //! a fixed seed.
 
-use tpt_math_prob::Xoshiro256;
+use tpt_math_prob::sampler::SplitMix64;
 use tpt_opt_core::{
     Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
 };
@@ -128,7 +128,7 @@ pub struct SimulatedAnnealing {
     initial: Option<Vec<f64>>,
     target: Option<f64>,
     seed: u64,
-    rng: Xoshiro256,
+    rng: SplitMix64,
     history: ConvergenceHistory,
 }
 
@@ -143,7 +143,7 @@ impl SimulatedAnnealing {
             initial: None,
             target: None,
             seed: 0,
-            rng: Xoshiro256::new(0),
+            rng: SplitMix64::seed_from_u64(0),
             history: ConvergenceHistory::new(),
         }
     }
@@ -183,7 +183,7 @@ impl SimulatedAnnealing {
     /// Set the deterministic seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
-        self.rng = Xoshiro256::new(seed);
+        self.rng = SplitMix64::seed_from_u64(seed);
         self
     }
 
@@ -228,7 +228,7 @@ pub(crate) fn anneal(
     initial: Option<Vec<f64>>,
     target: Option<f64>,
     seed: u64,
-    rng: &mut Xoshiro256,
+    rng: &mut SplitMix64,
 ) -> HeuristicResult {
     let sense = objective.sense();
     let mut current = initial.unwrap_or_else(|| random_point(objective, rng));
@@ -319,7 +319,7 @@ impl Solver<Model> for SimulatedAnnealing {
     fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
         if let Some(seed) = param.seed {
             self.seed = seed;
-            self.rng = Xoshiro256::new(seed);
+            self.rng = SplitMix64::seed_from_u64(seed);
         }
         Ok(())
     }

@@ -2,7 +2,7 @@
 //!
 //! Each tree node relaxes the integer variables to continuous and solves the
 //! resulting NLP with the sequential-quadratic/quasi-Newton augmented
-//! Lagrangian solver ([`tpt_math_optimize_general::solve_nlp`]). Nodes are
+//! Lagrangian solver ([`tpt_opt_core::nlp::solve_nlp`]). Nodes are
 //! pruned on infeasibility or on a relaxation bound worse than the incumbent;
 //! fractional solutions are branched on the most fractional integer variable
 //! (bound disjunction). Unlike outer approximation, no convexity assumption
@@ -12,7 +12,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_optimize_general::{solve_nlp, NlpParams, NlpProblem, NlpResult};
+use tpt_opt_core::nlp::{solve_nlp, NlpParams, NlpProblem, NlpResult};
 
 use crate::model::{ConstraintKind, MinlpModel, VarKind};
 use crate::oa::OaStatus;

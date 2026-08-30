@@ -5,11 +5,12 @@
 //! the neighbourhood topology ([`Topology`]) can be global (gbest), a local ring
 //! (lbest), or a Von Neumann lattice.
 
-use tpt_math_prob::Xoshiro256;
+use tpt_math_prob::sampler::SplitMix64;
 use tpt_opt_core::{
     Model, OptError, Sense, Solution, SolveParameters, Solver, SolverStatus, WarmStart,
 };
 
+use crate::rng::RngExt;
 use crate::history::ConvergenceHistory;
 use crate::problem::{random_point, Objective};
 use crate::result::HeuristicResult;
@@ -77,7 +78,7 @@ pub struct ParticleSwarmOptimization {
     initial: Option<Vec<f64>>,
     target: Option<f64>,
     seed: u64,
-    rng: Xoshiro256,
+    rng: SplitMix64,
     history: ConvergenceHistory,
 }
 
@@ -96,7 +97,7 @@ impl ParticleSwarmOptimization {
             initial: None,
             target: None,
             seed: 0,
-            rng: Xoshiro256::new(0),
+            rng: SplitMix64::seed_from_u64(0),
             history: ConvergenceHistory::new(),
         }
     }
@@ -154,7 +155,7 @@ impl ParticleSwarmOptimization {
     /// Set the deterministic seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
-        self.rng = Xoshiro256::new(seed);
+        self.rng = SplitMix64::seed_from_u64(seed);
         self
     }
 
@@ -352,7 +353,7 @@ impl Solver<Model> for ParticleSwarmOptimization {
     fn set_parameter(&mut self, param: &SolveParameters) -> Result<(), OptError> {
         if let Some(seed) = param.seed {
             self.seed = seed;
-            self.rng = Xoshiro256::new(seed);
+            self.rng = SplitMix64::seed_from_u64(seed);
         }
         Ok(())
     }

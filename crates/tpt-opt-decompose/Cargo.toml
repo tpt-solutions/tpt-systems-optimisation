@@ -17,7 +17,7 @@ documentation = "https://docs.rs/tpt-opt-decompose"
     tpt-opt-core = { workspace = true }
     tpt-opt-milp = { workspace = true }
     tpt-math-optimize-convex = { workspace = true }
-    tpt-math-linalg = { workspace = true }
+    tpt-math-linalg-sparse = { workspace = true }
 
 [features]
 default = ["std"]

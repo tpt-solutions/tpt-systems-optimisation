@@ -12,11 +12,12 @@
 //!
 //! Self-contained like [`crate::nsga2`]: an objective function plus per-
 //! variable bounds; all randomness flows through a seedable
-//! [`tpt_math_prob::Xoshiro256`] for reproducibility (spec §4).
+//! [`tpt_math_prob::sampler::SplitMix64`] for reproducibility (spec §4).
 
 use std::vec::Vec;
 
-use tpt_math_prob::{Rng, Xoshiro256};
+use tpt_math_prob::sampler::{Rng, SplitMix64};
+use crate::RngExt;
 
 /// Configuration for [`Nsga3`].
 #[derive(Debug, Clone)]
@@ -160,7 +161,7 @@ impl Nsga3 {
     /// Run the algorithm; returns the final population as
     /// `(decision_vector, objective_vector)` pairs.
     pub fn solve(&self) -> Vec<(Vec<f64>, Vec<f64>)> {
-        let mut rng = Xoshiro256::new(self.config.seed);
+        let mut rng = SplitMix64::seed_from_u64(self.config.seed);
         let pop = self.config.population.max(4);
         let m = (self.objective)(&vec![0.0; self.bounds.len()]).len().max(2);
 
@@ -226,7 +227,7 @@ impl Nsga3 {
         chosen.into_iter().map(|i| combined[i].clone()).collect()
     }
 
-    fn make_offspring(&self, inds: &[Individual], rng: &mut Xoshiro256) -> Vec<Individual> {
+    fn make_offspring(&self, inds: &[Individual], rng: &mut SplitMix64) -> Vec<Individual> {
         let mut offspring = Vec::with_capacity(inds.len());
         while offspring.len() < inds.len() {
             let p1 = tournament(inds, rng);
@@ -300,7 +301,7 @@ fn group_by_rank(inds: &[Individual]) -> Vec<Vec<usize>> {
 }
 
 /// Binary tournament by rank (ties broken by index — deterministic).
-fn tournament<'a>(inds: &'a [Individual], rng: &mut Xoshiro256) -> &'a Individual {
+fn tournament<'a>(inds: &'a [Individual], rng: &mut SplitMix64) -> &'a Individual {
     let a = (rng.next_u64() as usize) % inds.len();
     let b = (rng.next_u64() as usize) % inds.len();
     let (ia, ib) = (&inds[a], &inds[b]);
@@ -318,7 +319,7 @@ fn tournament<'a>(inds: &'a [Individual], rng: &mut Xoshiro256) -> &'a Individua
 }
 
 /// Simulated binary crossover (SBX), in place.
-fn sbx(c1: &mut [f64], c2: &mut [f64], eta: f64, bounds: &[(f64, f64)], rng: &mut Xoshiro256) {
+fn sbx(c1: &mut [f64], c2: &mut [f64], eta: f64, bounds: &[(f64, f64)], rng: &mut SplitMix64) {
     for k in 0..c1.len() {
         if rng.next_f64() > 0.5 {
             continue;
@@ -342,7 +343,7 @@ fn sbx(c1: &mut [f64], c2: &mut [f64], eta: f64, bounds: &[(f64, f64)], rng: &mu
 }
 
 /// Polynomial mutation, in place.
-fn mutate(x: &mut [f64], eta: f64, prob: f64, bounds: &[(f64, f64)], rng: &mut Xoshiro256) {
+fn mutate(x: &mut [f64], eta: f64, prob: f64, bounds: &[(f64, f64)], rng: &mut SplitMix64) {
     for (k, v) in x.iter_mut().enumerate() {
         if rng.next_f64() > prob {
             continue;

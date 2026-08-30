@@ -28,8 +28,6 @@ all-features = true
     tpt-opt-multi = { workspace = true, optional = true }
     tpt-opt-robust = { workspace = true, optional = true }
     tpt-opt-decompose = { workspace = true, optional = true }
-    # Graph types for the network builder / flow-to-MILP conversion.
-    tpt-math-graph = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -41,7 +39,7 @@ milp = ["dep:tpt-opt-milp"]
 # Mixed-integer nonlinear programming (outer approximation, GBD, SQP-B&B).
 minlp = ["dep:tpt-opt-minlp"]
 # Network flows, assignment, OPF, graph preprocessing.
-network = ["dep:tpt-opt-network", "dep:tpt-math-graph"]
+network = ["dep:tpt-opt-network"]
 # Constraint programming (propagation + backtracking search).
 cp = ["dep:tpt-opt-cp"]
 # Metaheuristics (annealing, GA, tabu, PSO).

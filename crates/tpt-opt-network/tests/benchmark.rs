@@ -5,7 +5,7 @@
 //! path and network simplex), cross-validated against each other and against
 //! the analytic optimum, with flow-conservation and capacity checks.
 
-use tpt_math_graph::{Edge, Graph};
+use tpt_opt_core::graph::{Edge, Graph};
 use tpt_opt_core::solver::SolverStatus;
 use tpt_opt_network::{min_cost_flow, network_simplex};
 

@@ -5,7 +5,7 @@
 //! produced the neighbour, which tabu search needs to maintain its tabu list.
 
 use crate::problem::Objective;
-use crate::rng::Rng;
+use crate::rng::{Rng, RngExt};
 
 /// Produces neighbours of a continuous point.
 pub trait Neighborhood {

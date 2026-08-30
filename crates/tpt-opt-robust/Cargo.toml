@@ -18,7 +18,7 @@ documentation = "https://docs.rs/tpt-opt-robust"
     tpt-opt-milp = { workspace = true }
     tpt-math-optimize-convex = { workspace = true }
     tpt-math-prob = { workspace = true }
-    tpt-math-linalg = { workspace = true }
+    tpt-math-linalg-sparse = { workspace = true }
 
 [features]
 default = ["std"]

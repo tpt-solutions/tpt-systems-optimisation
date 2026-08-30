@@ -4,13 +4,13 @@
 //!
 //! - **Min-cost flow** — successive shortest path (primary) and a
 //!   negative-cycle-canceling *network simplex* variant, both operating on the
-//!   directed [`tpt_math_graph::Graph`] with per-edge capacity/cost.
+//!   directed [`tpt_opt_core::graph::Graph`] with per-edge capacity/cost.
 //! - **Assignment / matching** — the Hungarian (Kuhn–Munkres) algorithm for the
 //!   square assignment problem.
 //! - **Optimal power flow** — DC-OPF (linearised, solved as an LP via an
 //!   internal two-phase simplex implementing [`tpt_opt_core::solver::Solver`]),
 //!   AC-OPF (polar coordinates, solved as a nonlinear program via
-//!   `tpt_math_optimize_general::solve_nlp`), and security-constrained OPF
+//!   `tpt_opt_core::nlp::solve_nlp`), and security-constrained OPF
 //!   (DC-OPF with N-1 contingency constraints using Line Outage Distribution
 //!   Factors).
 //! - **Graph preprocessing** — cycle detection, bridge identification,
@@ -28,7 +28,7 @@
 //! Route 4 units from node 0 to node 3 at minimum cost:
 //!
 //! ```
-//! use tpt_math_graph::{Edge, Graph};
+//! use tpt_opt_core::graph::{Edge, Graph};
 //! use tpt_opt_core::solver::SolverStatus;
 //! use tpt_opt_network::min_cost_flow;
 //!

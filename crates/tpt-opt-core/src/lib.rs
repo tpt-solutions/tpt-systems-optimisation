@@ -43,6 +43,10 @@ pub mod bounds;
 pub mod custom;
 pub mod error;
 pub mod matrix;
+#[cfg(feature = "alloc")]
+pub mod graph;
+#[cfg(feature = "nlp")]
+pub mod nlp;
 pub mod model;
 pub mod progress;
 pub mod solver;

@@ -20,7 +20,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_optimize_general::NlpParams;
+use tpt_opt_core::nlp::{NlpParams, NlpStatus};
 use tpt_opt_core::{
     bounds::VarBound,
     model::{Constraint, Model, Objective},
@@ -165,7 +165,7 @@ pub fn generalized_benders(model: &MinlpModel, cfg: &GbdConfig) -> GbdResult {
         let res = solve_subproblem(model, &ym, &cfg.nlp);
         let viol = max_violation(model, &ym, &res.x);
         visited.push(key_of(&ym));
-        if viol < 1e-4 && res.status == tpt_math_optimize_general::NlpStatus::Converged {
+        if viol < 1e-4 && res.status == NlpStatus::Converged {
             if res.objective < upper {
                 upper = res.objective;
                 best_x = Some(res.x.clone());
@@ -328,7 +328,7 @@ fn probe_value(model: &MinlpModel, y: &[f64], value_mode: bool) -> f64 {
     let res = solve_subproblem(model, y, &params);
     let viol = max_violation(model, y, &res.x);
     if value_mode {
-        if viol < 1e-4 && res.status == tpt_math_optimize_general::NlpStatus::Converged {
+        if viol < 1e-4 && res.status == NlpStatus::Converged {
             res.objective
         } else {
             f64::NAN

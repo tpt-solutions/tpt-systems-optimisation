@@ -11,7 +11,7 @@
 //!    branch-and-bound must match the best value found by fixing every
 //!    integer assignment and solving the resulting NLPs directly.
 
-use tpt_math_optimize_general::NlpParams;
+use tpt_opt_core::nlp::NlpParams;
 use tpt_opt_minlp::gbd::{generalized_benders, GbdConfig};
 use tpt_opt_minlp::model::{MinlpModel, VarKind};
 use tpt_opt_minlp::oa::{outer_approximate, OaConfig};

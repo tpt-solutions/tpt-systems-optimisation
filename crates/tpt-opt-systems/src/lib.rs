@@ -122,7 +122,7 @@ pub use builders::NetworkFlowBuilder;
 #[cfg(all(feature = "network", feature = "milp"))]
 pub use convert::network_flow_to_milp;
 #[cfg(feature = "network")]
-pub use tpt_math_graph as graph;
+pub use tpt_opt_core::graph as graph;
 #[cfg(feature = "network")]
 pub use tpt_opt_network as network;
 #[cfg(feature = "network")]

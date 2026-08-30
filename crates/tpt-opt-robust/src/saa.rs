@@ -16,7 +16,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_prob::Xoshiro256;
+use tpt_math_prob::sampler::SplitMix64;
 
 /// Configuration for [`SaaSolver`].
 #[derive(Debug, Clone)]
@@ -81,7 +81,7 @@ impl<FS, FE, FD> SaaSolver<FS, FE, FD>
 where
     FS: FnMut(&[Vec<f64>]) -> Result<(Vec<f64>, f64), String>,
     FE: Fn(&[f64], &Vec<f64>) -> f64,
-    FD: FnMut(&mut Xoshiro256) -> Vec<f64>,
+    FD: FnMut(&mut SplitMix64) -> Vec<f64>,
 {
     /// Create an SAA driver with the given configuration and callbacks.
     pub fn new(config: SaaConfig, solve_sampled: FS, evaluate: FE, draw: FD) -> Self {
@@ -90,7 +90,7 @@ where
 
     /// Run the full SAA procedure and return the statistical estimates.
     pub fn run(mut self) -> Result<SaaResult, String> {
-        let mut rng = Xoshiro256::new(self.config.seed);
+        let mut rng = SplitMix64::new(self.config.seed);
         let k = self.config.replications.max(2);
 
         // Replication phase: independent sample sets -> candidates + values.

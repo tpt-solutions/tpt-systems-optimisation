@@ -8,7 +8,7 @@
 
 use tpt_opt_core::{Model, Sense, VarType};
 
-use crate::rng::Rng;
+use crate::rng::{Rng, RngExt};
 
 /// A continuous optimisation objective minimised or maximised over a box.
 pub trait Objective {

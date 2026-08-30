@@ -21,5 +21,12 @@ breaking changes between minor versions.
   `ConstraintMatrix`) compatible with `tpt-math-linalg`.
 - Extensibility hook `CustomConstraint` (`evaluate` / `gradient` /
   `is_violated`).
+- Progress-reporting contract (`progress`): `ProgressEvent`,
+  `ProgressAction`, and the `ProgressCallback` signature shared by solvers
+  that support live reporting and early termination.
+- Optional `serde` feature: canonical types (`Model`, `Variable`,
+  `Constraint`, `Objective`, `VarBound`, `Solution`, `SolveParameters`,
+  `WarmStart`, `Tolerances`, errors) serialise for warm-start caching and
+  reproducible bug reports; infinite bounds encode as `null` on the wire.
 - `no_std` support with optional `alloc` (default `std`).
 - Cargo-publish metadata, README, and CHANGELOG.

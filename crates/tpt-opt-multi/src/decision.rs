@@ -9,7 +9,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_prob::{Rng, Xoshiro256};
+use tpt_math_prob::sampler::{Rng, SplitMix64};
 
 /// Normalise each objective to [0, 1] using the front's min/max.
 fn normalize(objs: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -166,7 +166,7 @@ pub fn cluster_solutions(objs: &[Vec<f64>], k: usize) -> Vec<usize> {
     // the ideal corner; subsequent centroids = points farthest from their
     // nearest existing centroid (max-min), tie-broken by index via jittered
     // keys from a fixed-seed RNG.
-    let mut rng = Xoshiro256::new(0x5EED_0000_0000_0001u64);
+    let mut rng = SplitMix64::seed_from_u64(0x5EED_0000_0000_0001u64);
     let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
     let mut first = 0usize;
     let mut best_d2 = f64::NEG_INFINITY;

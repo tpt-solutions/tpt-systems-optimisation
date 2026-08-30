@@ -10,7 +10,7 @@
 
 use std::vec::Vec;
 
-use tpt_math_optimize_general::{solve_nlp, NlpParams, NlpProblem, NlpResult, NlpStatus};
+use tpt_opt_core::nlp::{solve_nlp, NlpParams, NlpProblem, NlpResult, NlpStatus};
 
 use crate::model::{ConstraintKind, MinlpModel, VarKind};
 

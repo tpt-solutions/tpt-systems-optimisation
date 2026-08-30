@@ -6,7 +6,7 @@
 //!   expressed as an LP and solved with the crate's internal two-phase simplex
 //!   ([`crate::LpSolver`]). This is the workhorse for large networks.
 //! - [`ac_opf`] — AC-OPF in polar coordinates, solved as a nonlinear program via
-//!   `tpt_math_optimize_general::solve_nlp` (augmented-Lagrangian / BFGS). The
+//!   `tpt_opt_core::nlp::solve_nlp` (augmented-Lagrangian / BFGS). The
 //!   active power balance at every bus is enforced exactly; generator limits,
 //!   voltage magnitude limits and line-flow limits are enforced as bounds /
 //!   inequalities.
@@ -18,9 +18,7 @@
 //! / [`tpt_opt_core::solver::SolverStatus::Infeasible`] rather than silently
 //! returning wrong dispatches.
 
-use std::vec::Vec;
-
-use tpt_math_optimize_general::{solve_nlp, NlpParams, NlpProblem};
+use tpt_opt_core::nlp::{solve_nlp, NlpParams, NlpProblem, NlpStatus};
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
 use tpt_opt_core::solver::Solver;
 use tpt_opt_core::{SolverStatus, VarBound};
@@ -236,7 +234,7 @@ pub struct AcOpfResult {
     pub converged: bool,
 }
 
-/// The AC-OPF cast as an NLP subproblem for `tpt_math_optimize_general`.
+/// The AC-OPF cast as an NLP subproblem for `tpt_opt_core::nlp`.
 struct AcOpf<'a> {
     net: &'a Network,
     slack: usize,
@@ -380,7 +378,7 @@ pub fn ac_opf(net: &Network) -> AcOpfResult {
         angles,
         flows,
         total_cost: res.objective,
-        converged: res.status == tpt_math_optimize_general::NlpStatus::Converged,
+        converged: res.status == NlpStatus::Converged,
     }
 }
 

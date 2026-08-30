@@ -70,6 +70,12 @@ impl CpModel {
     }
 }
 
+impl Default for CpModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpModel {
     /// Preprocess the model in place with **AC-3**: propagate every
     /// constraint to a fixpoint using the worklist algorithm, removing values
@@ -115,6 +121,85 @@ pub struct Ac3Stats {
     pub revisions: usize,
     /// Total number of values removed from domains across all revisions.
     pub removals: usize,
+}
+
+/// Run AC-3 propagation to a fixpoint; returns `Err` if a domain empties.
+pub(crate) fn fixpoint(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+) -> Result<(), Inconsistency> {
+    fixpoint_report(doms, cons).map_err(|_| Inconsistency)
+}
+
+/// Run AC-3 propagation to a fixpoint, reporting the index of the constraint
+/// whose filter emptied a domain (used by conflict-directed backjumping to
+/// attribute failures). Returns `Err(index)` on wipeout.
+///
+/// Worklist discipline: initially every constraint is queued. Popping a
+/// constraint runs its filter once; whenever a variable in its scope loses
+/// values, every constraint watching that variable is re-enqueued (including
+/// the reviser itself — see the loop comment). The loop ends when the queue
+/// drains with no further pruning — a fixpoint.
+/// Constraints are assumed to prune only within their own scope (the contract
+/// every `Constraint` impl in this crate follows).
+pub(crate) fn fixpoint_ac3(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+) -> Result<Ac3Stats, usize> {
+    // Variable -> constraints whose scope contains it (watch lists).
+    let mut var_cons: Vec<Vec<usize>> = vec![Vec::new(); doms.len()];
+    for (ci, c) in cons.iter().enumerate() {
+        for &v in c.vars() {
+            if v < doms.len() && !var_cons[v].contains(&ci) {
+                var_cons[v].push(ci);
+            }
+        }
+    }
+
+    let mut queue: VecDeque<usize> = (0..cons.len()).collect();
+    let mut queued = vec![true; cons.len()];
+    let mut stats = Ac3Stats::default();
+
+    while let Some(ci) = queue.pop_front() {
+        queued[ci] = false;
+        let scope = cons[ci].vars().to_vec();
+        let before: Vec<usize> = scope.iter().map(|&v| doms[v].len()).collect();
+
+        stats.revisions += 1;
+        cons[ci].propagate(doms).map_err(|_| ci)?;
+
+        for (k, &v) in scope.iter().enumerate() {
+            if doms[v].is_empty() {
+                return Err(ci);
+            }
+            if doms[v].len() != before[k] {
+                stats.removals += before[k] - doms[v].len();
+                // Re-enqueue every constraint watching this variable —
+                // including `ci` itself: unlike a binary AC-3 `revise` (a
+                // complete support check), a global filter is not guaranteed
+                // to reach its own fixpoint in one call, so keep revising it
+                // until a pass makes no change.
+                for &cj in &var_cons[v] {
+                    if !queued[cj] {
+                        queued[cj] = true;
+                        queue.push_back(cj);
+                    }
+                }
+            }
+        }
+    }
+    Ok(stats)
+}
+
+/// Compatibility wrapper preserving the historical round-robin signature:
+/// delegates to [`fixpoint_ac3`] and discards the statistics. (The AC-3
+/// worklist reaches the identical fixpoint while doing strictly less work on
+/// sparse constraint graphs.)
+pub(crate) fn fixpoint_report(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+) -> Result<(), usize> {
+    fixpoint_ac3(doms, cons).map(|_| ())
 }
 
 #[cfg(test)]
@@ -216,83 +301,4 @@ mod tests {
         let s_pre = crate::solver::solve(&pre).expect("feasible");
         assert_eq!(s_raw.assignment, s_pre.assignment);
     }
-}
-
-/// Run AC-3 propagation to a fixpoint; returns `Err` if a domain empties.
-pub(crate) fn fixpoint(
-    doms: &mut [Domain],
-    cons: &[Box<dyn Constraint>],
-) -> Result<(), Inconsistency> {
-    fixpoint_report(doms, cons).map_err(|_| Inconsistency)
-}
-
-/// Run AC-3 propagation to a fixpoint, reporting the index of the constraint
-/// whose filter emptied a domain (used by conflict-directed backjumping to
-/// attribute failures). Returns `Err(index)` on wipeout.
-///
-/// Worklist discipline: initially every constraint is queued. Popping a
-/// constraint runs its filter once; whenever a variable in its scope loses
-/// values, every constraint watching that variable is re-enqueued (including
-/// the reviser itself — see the loop comment). The loop ends when the queue
-/// drains with no further pruning — a fixpoint.
-/// Constraints are assumed to prune only within their own scope (the contract
-/// every `Constraint` impl in this crate follows).
-pub(crate) fn fixpoint_ac3(
-    doms: &mut [Domain],
-    cons: &[Box<dyn Constraint>],
-) -> Result<Ac3Stats, usize> {
-    // Variable -> constraints whose scope contains it (watch lists).
-    let mut var_cons: Vec<Vec<usize>> = vec![Vec::new(); doms.len()];
-    for (ci, c) in cons.iter().enumerate() {
-        for &v in c.vars() {
-            if v < doms.len() && !var_cons[v].contains(&ci) {
-                var_cons[v].push(ci);
-            }
-        }
-    }
-
-    let mut queue: VecDeque<usize> = (0..cons.len()).collect();
-    let mut queued = vec![true; cons.len()];
-    let mut stats = Ac3Stats::default();
-
-    while let Some(ci) = queue.pop_front() {
-        queued[ci] = false;
-        let scope = cons[ci].vars().to_vec();
-        let before: Vec<usize> = scope.iter().map(|&v| doms[v].len()).collect();
-
-        stats.revisions += 1;
-        cons[ci].propagate(doms).map_err(|_| ci)?;
-
-        for (k, &v) in scope.iter().enumerate() {
-            if doms[v].is_empty() {
-                return Err(ci);
-            }
-            if doms[v].len() != before[k] {
-                stats.removals += before[k] - doms[v].len();
-                // Re-enqueue every constraint watching this variable —
-                // including `ci` itself: unlike a binary AC-3 `revise` (a
-                // complete support check), a global filter is not guaranteed
-                // to reach its own fixpoint in one call, so keep revising it
-                // until a pass makes no change.
-                for &cj in &var_cons[v] {
-                    if !queued[cj] {
-                        queued[cj] = true;
-                        queue.push_back(cj);
-                    }
-                }
-            }
-        }
-    }
-    Ok(stats)
-}
-
-/// Compatibility wrapper preserving the historical round-robin signature:
-/// delegates to [`fixpoint_ac3`] and discards the statistics. (The AC-3
-/// worklist reaches the identical fixpoint while doing strictly less work on
-/// sparse constraint graphs.)
-pub(crate) fn fixpoint_report(
-    doms: &mut [Domain],
-    cons: &[Box<dyn Constraint>],
-) -> Result<(), usize> {
-    fixpoint_ac3(doms, cons).map(|_| ())
 }

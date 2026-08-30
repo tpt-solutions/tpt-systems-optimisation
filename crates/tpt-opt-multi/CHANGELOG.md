@@ -25,3 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deterministic k-means clustering of front members (`cluster_solutions`).
 - Weighted-sum and ε-constraint scalarisations backed by `tpt-opt-milp`
   (`scalarize`).
+- Tchebycheff scalarisations: plain and augmented epigraph models
+  (`tchebycheff_model` / `augmented_tchebycheff_model`) with payoff-table
+  ideal points, plus adaptive weighted-Tchebycheff
+  (`solve_weighted_tchebycheff_adaptive`) that rebalances weights toward a
+  balanced achievement across iterations — deterministic, no randomness.

@@ -8,7 +8,7 @@
 //! engine or an external binding such as HiGHS) solve network instances
 //! that lack a specialised algorithm.
 
-use tpt_math_graph::Graph;
+use tpt_opt_core::graph::Graph;
 use tpt_opt_core::{Constraint, Model, Objective};
 
 /// Convert a min-cost-flow instance into a canonical MILP model.
@@ -22,7 +22,7 @@ use tpt_opt_core::{Constraint, Model, Objective};
 /// # Example
 ///
 /// ```
-/// use tpt_math_graph::{Edge, Graph};
+/// use tpt_opt_core::graph::{Edge, Graph};
 /// use tpt_opt_core::solver::Solver;
 /// use tpt_opt_systems::{convert::network_flow_to_milp, MilpSolver};
 ///
@@ -73,7 +73,7 @@ pub fn network_flow_to_milp(graph: &Graph, balances: &[f64]) -> Model {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tpt_math_graph::Edge;
+    use tpt_opt_core::graph::Edge;
     use tpt_opt_core::solver::Solver;
 
     #[test]

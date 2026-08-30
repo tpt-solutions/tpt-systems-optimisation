@@ -1,13 +1,13 @@
 //! Min-cost flow: successive shortest path and network simplex.
 //!
-//! Both algorithms operate on a directed [`tpt_math_graph::Graph`] whose edges
+//! Both algorithms operate on a directed [`tpt_opt_core::graph::Graph`] whose edges
 //! carry a `capacity` and a `cost`. A per-node `supply` vector describes the
 //! problem: `supply[i] > 0` is a source, `supply[i] < 0` a sink, and the total
 //! supply must balance (`sum == 0`).
 
 use std::vec::Vec;
 
-use tpt_math_graph::Graph;
+use tpt_opt_core::graph::Graph;
 use tpt_opt_core::{SolverStatus, Tolerances};
 
 /// Result of a min-cost flow computation.

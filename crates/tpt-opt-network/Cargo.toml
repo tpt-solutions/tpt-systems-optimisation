@@ -14,10 +14,8 @@ categories = ["science::math", "algorithms"]
 documentation = "https://docs.rs/tpt-opt-network"
 
 [dependencies]
-    tpt-opt-core = { workspace = true }
-    tpt-math-graph = { workspace = true }
-    tpt-math-linalg = { workspace = true }
-    tpt-math-optimize-general = { workspace = true }
+    tpt-opt-core = { workspace = true, features = ["nlp"] }
+    tpt-math-linalg-sparse = { workspace = true }
 
 [features]
 default = ["std"]

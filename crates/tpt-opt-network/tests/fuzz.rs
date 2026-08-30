@@ -10,7 +10,7 @@
 //! 3. *Cross-algorithm agreement*: successive-shortest-path and
 //!    network-simplex agree on status and optimal cost.
 
-use tpt_math_graph::{Edge, Graph};
+use tpt_opt_core::graph::{Edge, Graph};
 use tpt_opt_core::SolverStatus;
 use tpt_opt_network::{min_cost_flow, network_simplex};
 

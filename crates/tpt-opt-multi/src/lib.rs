@@ -31,6 +31,32 @@ pub use nsga2::{Nsga2, Nsga2Config};
 pub use nsga3::{das_dennis, Nsga3, Nsga3Config};
 pub use scalarize::{LinearMultiObjective, Scalarization};
 
+use tpt_math_prob::sampler::Rng;
+
+/// Mirror of the historical `tpt-math-prob` `Rng` helpers, layered on the
+/// published minimal `Rng` trait so the NSGA solvers keep calling
+/// `rng.range(lo, hi)` / `rng.index(n)` unchanged.
+pub trait RngExt {
+    /// Uniform `f64` in `[lo, hi)`.
+    fn range(&mut self, lo: f64, hi: f64) -> f64;
+    /// Uniform `usize` in `0..n` (`0` when `n == 0`).
+    fn index(&mut self, n: usize) -> usize;
+}
+
+impl<R: Rng + ?Sized> RngExt for R {
+    fn range(&mut self, lo: f64, hi: f64) -> f64 {
+        lo + (hi - lo) * self.next_f64()
+    }
+
+    fn index(&mut self, n: usize) -> usize {
+        if n == 0 {
+            0
+        } else {
+            (self.next_u64() as usize) % n
+        }
+    }
+}
+
 #[cfg(test)]
 mod nsga3_tests {
     use crate::nsga3::{das_dennis, Nsga3, Nsga3Config};

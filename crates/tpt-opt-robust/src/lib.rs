@@ -24,7 +24,7 @@
 //!
 //! All MILP-backed components build [`tpt_opt_core::Model`] instances and
 //! solve them with [`tpt_opt_milp::MilpSolver`]; sampling flows through the
-//! seedable [`tpt_math_prob::Xoshiro256`] RNG for reproducibility (spec §4).
+//! seedable [`tpt_math_prob::sampler::SplitMix64`] RNG for reproducibility (spec §4).
 //!
 //! # Example
 //!

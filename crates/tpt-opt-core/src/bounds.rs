@@ -11,7 +11,13 @@
 //! losslessly through every serde format — including self-describing text
 //! formats like JSON that cannot represent non-finite floats natively.
 
-use tpt_math_numeric::is_integer;
+/// Returns `true` if `x` is within `eps` of an integer (nearest-integer sense).
+///
+/// The published `tpt-math` crates do not expose this helper, so it is defined
+/// locally here rather than pulled from `tpt-math-numeric`.
+pub(crate) fn is_integer(x: f64, eps: f64) -> bool {
+    (x - x.round()).abs() <= eps
+}
 
 /// A variable kind, orthogonal to its numeric bounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

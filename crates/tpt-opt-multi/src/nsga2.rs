@@ -2,12 +2,13 @@
 //! multi-objective optimisation (Deb et al., 2002).
 //!
 //! Self-contained: it only needs an objective function and per-variable bounds.
-//! All randomness flows through a seedable [`tpt_math_prob::Xoshiro256`] so that
+//! All randomness flows through a seedable [`tpt_math_prob::sampler::SplitMix64`] so that
 //! runs with equal seeds are reproducible (spec §4).
 
 use std::vec::Vec;
 
-use tpt_math_prob::{Rng, Xoshiro256};
+use tpt_math_prob::sampler::{Rng, SplitMix64};
+use crate::RngExt;
 
 /// Configuration for [`Nsga2`].
 #[derive(Debug, Clone)]
@@ -83,7 +84,7 @@ impl Nsga2 {
     /// Run the algorithm and return the final population's individuals as
     /// `(decision_vector, objective_vector)` pairs.
     pub fn solve(&self) -> Vec<(Vec<f64>, Vec<f64>)> {
-        let mut rng = Xoshiro256::new(self.config.seed);
+        let mut rng = SplitMix64::seed_from_u64(self.config.seed);
         let pop = self.config.population.max(4) | 1; // ensure odd? keep even-friendly
         let pop = pop + (pop % 2);
 
@@ -119,7 +120,7 @@ impl Nsga2 {
         crate::dominance::pareto_front(&objs).into_iter().map(|i| all[i].clone()).collect()
     }
 
-    fn make_offspring(&self, pop: &[Individual], rng: &mut Xoshiro256) -> Vec<Individual> {
+    fn make_offspring(&self, pop: &[Individual], rng: &mut SplitMix64) -> Vec<Individual> {
         let mut children = Vec::with_capacity(pop.len());
         while children.len() < pop.len() {
             let p1 = self.tournament(pop, rng);
@@ -139,13 +140,13 @@ impl Nsga2 {
         children
     }
 
-    fn tournament<'a>(&self, pop: &'a [Individual], rng: &mut Xoshiro256) -> &'a Individual {
+    fn tournament<'a>(&self, pop: &'a [Individual], rng: &mut SplitMix64) -> &'a Individual {
         let a = &pop[rng.index(pop.len())];
         let b = &pop[rng.index(pop.len())];
         better(a, b)
     }
 
-    fn sbx(&self, pa: &[f64], pb: &[f64], rng: &mut Xoshiro256) -> (Vec<f64>, Vec<f64>) {
+    fn sbx(&self, pa: &[f64], pb: &[f64], rng: &mut SplitMix64) -> (Vec<f64>, Vec<f64>) {
         let eta = self.config.eta_c;
         let mut c1 = vec![0.0f64; pa.len()];
         let mut c2 = vec![0.0f64; pa.len()];
@@ -176,7 +177,7 @@ impl Nsga2 {
         (c1, c2)
     }
 
-    fn mutate(&self, x: &mut [f64], rng: &mut Xoshiro256) {
+    fn mutate(&self, x: &mut [f64], rng: &mut SplitMix64) {
         let eta = self.config.eta_m;
         for (xi, b) in x.iter_mut().zip(self.bounds.iter()) {
             if rng.next_f64() < self.config.mutation_prob {

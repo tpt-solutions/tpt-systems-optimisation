@@ -1,5 +1,5 @@
 //! Graph preprocessing utilities operating on an undirected view of a directed
-//! [`tpt_math_graph::Graph`].
+//! [`tpt_opt_core::graph::Graph`].
 //!
 //! Each directed edge `(u, v)` is treated as a single undirected connection
 //! between `u` and `v`. Parallel directed edges between the same pair are
@@ -7,10 +7,10 @@
 
 use std::vec::Vec;
 
-use tpt_math_graph::Graph;
+use tpt_opt_core::graph::Graph;
 
 /// Returns `true` if the directed graph contains a (directed) cycle, delegating
-/// to [`tpt_math_graph::Graph::has_cycle`].
+/// to [`tpt_opt_core::graph::Graph::has_cycle`].
 pub fn has_cycle(graph: &Graph) -> bool {
     graph.has_cycle()
 }
@@ -314,7 +314,7 @@ fn bicon_dfs(
 #[cfg(test)]
 mod sp_tests {
     use super::*;
-    use tpt_math_graph::Edge;
+    use tpt_opt_core::graph::Edge;
 
     fn graph(n: usize, edges: &[(usize, usize)]) -> Graph {
         let mut g = Graph::new(n);

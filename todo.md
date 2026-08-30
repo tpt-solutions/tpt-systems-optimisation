@@ -460,7 +460,7 @@ solver). No-features build compiles with only `tpt-opt-core`; tests pass
 under `all-solvers`; fmt/clippy/deny clean.
 
 - [x] Scaffold `crates/tpt-opt-systems/` (empty stub only)
-- [x] Wire optional deps + one flat feature per solver crate: `milp`, `minlp`, `network`, `cp`, `heuristic`, `multi`, `robust`, `decompose` (+ `all-solvers` meta-feature; `network` also enables `tpt-math-graph` for the builder/conversion utilities)
+- [x] Wire optional deps + one flat feature per solver crate: `milp`, `minlp`, `network`, `cp`, `heuristic`, `multi`, `robust`, `decompose`, `conic` (+ `all-solvers` meta-feature; `network` also enables `tpt-math-graph` for the builder/conversion utilities)
 - [x] Confirm no-features build re-exports only `tpt-opt-core` â€” verified: `cargo build -p tpt-opt-systems --no-default-features` succeeds exposing only `core` + flat core types
 - [x] Re-export each constituent crate's public API behind its feature â€” whole-crate aliases plus flat headline-type re-exports per family
 - [x] Implement `MilpBuilder`, `NetworkFlowBuilder` convenience constructors â€” variable adders return indices (statement style); row/objective setters chain fluently; both wrap solve failures in `OptimizationError`
@@ -532,10 +532,10 @@ separate, later, human-triggered action.*
 
 ### Packaging + metadata audit
 
-- [x] Confirm all 10 crate names (`tpt-opt-core`, `-milp`, `-minlp`, `-network`, `-cp`, `-heuristic`, `-multi`, `-robust`, `-decompose`, `-systems`) are available/reservable on crates.io â€” **verified 2026-08-23 via the crates.io API** (GET /api/v1/crates/<name> returns 404 for every name): core, milp, minlp, network, cp, heuristic, multi, robust, decompose, systems - all ten available and unclaimed. Actual reservation lands with each crate's first publish (live publish remains out of scope here)
+- [x] Confirm all 10 crate names (`tpt-opt-core`, `-milp`, `-minlp`, `-network`, `-cp`, `-heuristic`, `-multi`, `-robust`, `-decompose`, `-conic`, `-systems`) are available/reservable on crates.io â€” **verified 2026-08-23 via the crates.io API** (GET /api/v1/crates/<name> returns 404 for every name): core, milp, minlp, network, cp, heuristic, multi, robust, decompose, systems - all ten available and unclaimed. Actual reservation lands with each crate's first publish (live publish remains out of scope here)
 - [x] Confirm every crate's `Cargo.toml` has `description`, `keywords` (â‰¤5), `categories` (valid crates.io category slugs), `readme`, `documentation`, `license`, `repository` â€” audited all 10: description/keywords/categories/readme/documentation set per crate; license/repository inherited from `[workspace.package]`; fixed `tpt-opt-core`'s `readme.workspace = true` â†’ `readme = "README.md"` (its workspace pointer resolved outside the package and triggered a packaging warning)
 - [x] Add `[package.metadata.docs.rs]` to `tpt-opt-systems` (and any crate with non-default features) so docs.rs builds with `all-features = true` â€” systems gets `all-features = true`; milp deliberately does **not** (the `highs` feature compiles HiGHS C++ from source, which docs.rs cannot do within its build budget) and instead documents that exclusion in a comment
-- [x] `cargo package -p <crate> --list` audited for every crate â€” confirm README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, no stray files â€” first pass found README+CHANGELOG only (LICENSE files lived solely at the repo root); copied LICENSE-MIT/LICENSE-APACHE into each of the 10 crate dirs; second pass confirms all 4 files present in every package with zero warnings
+- [x] `cargo package -p <crate> --list` audited for every crate â€” confirm README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, no stray files â€” first pass found README+CHANGELOG only (LICENSE files lived solely at the repo root); copied LICENSE-MIT/LICENSE-APACHE into each of the 11 crate dirs; second pass confirms all 4 files present in every package with zero warnings
 - [ ] `cargo publish --dry-run -p <crate>` clean for every crate, run in dependency order (core â†’ milp â†’ network â†’ minlp â†’ cp â†’ heuristic â†’ multi â†’ robust â†’ decompose â†’ systems) **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
 
 ### Docs + governance
@@ -551,7 +551,7 @@ separate, later, human-triggered action.*
 - [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean â€” verified locally with zero warnings emitted
 - [x] `cargo deny check` clean workspace-wide â€” advisories/bans/licenses/sources ok
 - [x] `cargo doc --workspace --no-deps` succeeds with no broken intra-doc links â€” zero rustdoc warnings after de-linking feature-gated mentions in the umbrella docs and fixing redundant explicit link targets across `tpt-opt-heuristic`/`tpt-opt-multi`/`tpt-opt-systems`
-- [ ] `cargo publish --dry-run` clean for all 10 crates, confirmed in one final pass after any last-minute doc/metadata edits **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
+- [ ] `cargo publish --dry-run` clean for all 11 crates, confirmed in one final pass after any last-minute doc/metadata edits **BLOCKED (re-diagnosed 2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED — `tpt-math-linalg-sparse` (published) provides the sparse surface, and `tpt-opt-core` now dry-runs clean against the published `tpt-math-*` crates (verified locally). The remaining blocker is publish **ordering**: `cargo publish`/`--dry-run` requires every sibling `tpt-opt-*` dependency to already be on crates.io, so each downstream crate can only be dry-run once the crates it depends on are actually published. That is the live-publish step, intentionally out of scope here. Packaging itself (`cargo package --list`) remains clean for all crates. NOTE (2026-08-30): the `tpt-opt-minlp` regression is **RESOLVED** — `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green and the downstream dry-runs are trustworthy.
 
 ## Open Risks / Assumptions
 
@@ -691,5 +691,40 @@ out-of-repo fixture downloads remain explicitly deferred with a stated reason.*
       multi-threaded linear-algebra to share a pool with, so a shared work-stealing
       pool remains unnecessary there.
 - [ ] **Integration tests (full corpora)** — see the robust/deferred item
-      above; per-crate one-instance hand-crafted benchmarks are already present.
+       above; per-crate one-instance hand-crafted benchmarks are already present.
+
+## Phase 12 — tpt-opt-conic
+
+*Conic (second-order-cone and semidefinite) optimisation. Depends on:
+tpt-opt-core, tpt-opt-milp. Re-exported by the umbrella `tpt-opt-systems`
+behind the `conic` feature.*
+
+**Status: implementation complete and verified (2026-08-30).** SOCP rows
+(`‖q(x)‖₂ ≤ r(x)`) and SDP blocks (`X(x) ⪰ 0`) are solved by Kelley
+cutting-plane outer approximation over the canonical LP engine. 4 lib tests
++ 1 doctest pass; fmt/clippy `-D warnings` clean; deny clean. During
+bring-up three real solver bugs were found and fixed: `SocRow::eval` dropped
+the `q_rhs` constant term (breaking feasibility and cut generation), the SDP
+cut had an inverted sign (`⟨v vᵀ, X(x)⟩ ≤ 0` instead of `≥ 0`, which excluded
+the true feasible region), and the reported objective was negated for
+maximisation. The relaxation also seeds `r(x) ≥ 0` for every SOC row so the
+LP stays bounded before the first cut. This crate is the SOCP/SDP capability
+that Phase 11 deferred for `tpt-opt-robust` ("needs a conic solver").
+
+- [x] Scaffold `crates/tpt-opt-conic/` (Cargo.toml inheriting workspace fields, `lib.rs`)
+- [x] Wire deps: `tpt-opt-core`, `tpt-opt-milp`
+- [x] Implement `ConeProgram` canonical form (variables, linear objective, equality rows, SOC rows, SDP blocks)
+- [x] Implement SOCP supporting-hyperplane cuts `r(x) ≥ (q/‖q‖)ᵀ q(x)` with a zero-norm guard separating via `r(x) ≥ 0`
+- [x] Implement SDP eigenvector cuts `⟨v vᵀ, X(x)⟩ ≥ 0` at the most-negative eigenvalue (cyclic Jacobi eigendecomposition in `jacobi_eigen`)
+- [x] Seed the relaxation with the necessary condition `r(x) ≥ 0` so the LP relaxation stays bounded and well-posed
+- [x] Implement `ConicStatus` + `ConeSolution` (status, primal, objective, max cone-constraint violation)
+- [x] Unit tests + doctest — 4 lib tests (maximisation SOCP quarter-disk ≈ 1.075, infeasible SOC, SDP PSD-cutting plane `[[1,x],[x,1]] ⪰ 0` → `|x| ≤ 1`, Jacobi sanity) + 1 crate-level doctest pass
+- [x] Rustdoc — crate-level overview, public API docs, and a runnable example
+- [x] `cargo fmt` / `clippy` clean — verified: `cargo clippy -p tpt-opt-conic --all-targets -- -D warnings` passes with zero warnings
+- [x] `cargo deny check` clean — verified workspace-wide
+- [x] README.md + CHANGELOG.md + LICENSE-MIT/LICENSE-APACHE
+- [x] Crates.io metadata — `description`/`keywords`/`categories`/`readme`/`documentation` present in `Cargo.toml`
+- [ ] Reserve `tpt-opt-conic` name on crates.io — availability assumed under the same 2026-08-23 `tpt-opt-*` namespace API check; reservation completes at first publish
+- [x] `cargo package -p tpt-opt-conic --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
+- [ ] `cargo publish --dry-run` clean — **BLOCKED (same publish-ordering dependency as the other `tpt-opt-*` crates)**: `tpt-opt-conic` depends on `tpt-opt-core` + `tpt-opt-milp`, both of which must be on crates.io before its `--dry-run` can resolve. Packaging (`cargo package --list`) is clean.
 

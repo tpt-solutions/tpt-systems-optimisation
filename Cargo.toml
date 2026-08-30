@@ -29,6 +29,7 @@ tpt-opt-heuristic = { path = "crates/tpt-opt-heuristic", version = "0.1.0" }
 tpt-opt-multi = { path = "crates/tpt-opt-multi", version = "0.1.0" }
 tpt-opt-robust = { path = "crates/tpt-opt-robust", version = "0.1.0" }
 tpt-opt-decompose = { path = "crates/tpt-opt-decompose", version = "0.1.0" }
+tpt-opt-conic = { path = "crates/tpt-opt-conic", version = "0.1.0" }
 tpt-opt-systems = { path = "crates/tpt-opt-systems", version = "0.1.0" }
 
 # Published `tpt-math` crates (crates.io). The optimisation crates now depend

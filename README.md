@@ -32,6 +32,7 @@ for benchmarking or production use without changing model code.
 | [`tpt-opt-multi`](./crates/tpt-opt-multi) | Multi-objective / Pareto optimisation (NSGA-II/III, ε-constraint, Tchebycheff) | [docs.rs](https://docs.rs/tpt-opt-multi) |
 | [`tpt-opt-robust`](./crates/tpt-opt-robust) | Robust & stochastic optimisation under uncertainty | [docs.rs](https://docs.rs/tpt-opt-robust) |
 | [`tpt-opt-decompose`](./crates/tpt-opt-decompose) | Large-scale decomposition (Benders, Dantzig-Wolfe, Lagrangian) | [docs.rs](https://docs.rs/tpt-opt-decompose) |
+| [`tpt-opt-conic`](./crates/tpt-opt-conic) | Conic (SOCP/SDP) optimisation via Kelley cutting planes | [docs.rs](https://docs.rs/tpt-opt-conic) |
 | [`tpt-opt-systems`](./crates/tpt-opt-systems) | Feature-gated umbrella re-exporting all of the above | [docs.rs](https://docs.rs/tpt-opt-systems) |
 | [`tpt-opt-cli`](./crates/tpt-opt-cli) | Command-line front end: solve an MPS/LP file from the shell | [docs.rs](https://docs.rs/tpt-opt-cli) |
 

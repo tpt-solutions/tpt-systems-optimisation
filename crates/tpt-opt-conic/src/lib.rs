@@ -12,11 +12,38 @@
 //! This makes the crate a drop-in conic solver for the robust-optimisation
 //! workflow (ellipsoidal uncertainty → SOCP) without vendoring a bespoke
 //! interior-point method.
+//!
+//! # Example
+//!
+//! ```rust
+//! use tpt_opt_conic::{solve_socp, ConeProgram, SocRow, ConicStatus};
+//! use tpt_opt_core::model::Sense;
+//!
+//! // max x1 + x2  s.t.  ‖(0.5 x1, 0.3 x1 + 0.4 x2)‖₂ ≤ 1 - x1,  x ≥ 0.
+//! let q_mat = vec![
+//!     vec![-1.0, 0.0], // r(x) = 1 - x1
+//!     vec![0.5, 0.0],  // q component 1
+//!     vec![0.3, 0.4],  // q component 2
+//! ];
+//! let prog = ConeProgram {
+//!     n: 2,
+//!     c: vec![1.0, 1.0],
+//!     sense: Sense::Maximize,
+//!     bounds: vec![(0.0, 2.0), (0.0, 5.0)],
+//!     eq_a: vec![],
+//!     eq_b: vec![],
+//!     soc_rows: vec![SocRow { q_mat, q_rhs: vec![1.0, 0.0, 0.0] }],
+//!     sdp_blocks: vec![],
+//! };
+//! let sol = solve_socp(&prog, 1e-6, 400);
+//! assert_eq!(sol.status, ConicStatus::Optimal);
+//! assert!(sol.objective > 1.0);
+//! ```
 
 use std::vec::Vec;
 
 use tpt_opt_core::model::{Model, Objective, Sense};
-use tpt_opt_core::{Constraint, VarBound};
+use tpt_opt_core::{Constraint, Solver, VarBound};
 use tpt_opt_milp::MilpSolver;
 
 /// Outcome of a conic solve.
@@ -52,8 +79,9 @@ impl SocRow {
         let s: Vec<f64> = self
             .q_mat
             .iter()
-            .map(|row| {
-                let mut v = 0.0;
+            .zip(self.q_rhs.iter())
+            .map(|(row, &b)| {
+                let mut v = b;
                 for (k, &c) in row.iter().enumerate() {
                     v += c * x[k];
                 }
@@ -80,10 +108,6 @@ pub struct SdpBlock {
 }
 
 impl SdpBlock {
-    fn n(&self) -> usize {
-        self.xs.len()
-    }
-
     /// Evaluate `X(x)` into a fresh `dim × dim` matrix.
     fn eval(&self, x: &[f64]) -> Vec<Vec<f64>> {
         let mut m = self.x0.clone();
@@ -150,6 +174,23 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
     // Cut accumulation: (nonzero indices, coeffs, rhs) for `≤` constraints.
     let mut cuts: Vec<(Vec<usize>, Vec<f64>, f64)> = Vec::new();
 
+    // Seed the relaxation with the always-valid necessary condition `r(x) ≥ 0`
+    // for every SOC row (a SOC requires ‖q‖ ≤ r with ‖q‖ ≥ 0). This also
+    // bounds the `r` affine form, keeping the LP relaxation well-posed even
+    // before the first supporting-hyperplane cut is generated.
+    for row in &prog.soc_rows {
+        let mut idx = Vec::new();
+        let mut co = Vec::new();
+        for k in 0..prog.n {
+            let ck = -row.q_mat[0][k];
+            if ck.abs() > 0.0 {
+                idx.push(k);
+                co.push(ck);
+            }
+        }
+        cuts.push((idx, co, row.q_rhs[0]));
+    }
+
     for _round in 0..max_iter {
         match lp_primal(prog, &cuts) {
             Some(x) => {
@@ -157,19 +198,39 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
                 let mut worst = 0.0f64;
                 for row in &prog.soc_rows {
                     let (r, q, norm) = row.eval(&x);
+                    if norm <= 1e-12 {
+                        // Degenerate cone point: ‖q‖ = 0, so the constraint
+                        // reduces to the necessary condition r(x) ≥ 0. If that
+                        // fails there is no valid supporting direction, so add
+                        // the separating cut -r(x) ≤ 0 and move on.
+                        if r < -tol {
+                            worst = worst.max(-r);
+                            let mut idx = Vec::new();
+                            let mut co = Vec::new();
+                            for k in 0..prog.n {
+                                let ck = -row.q_mat[0][k];
+                                if ck.abs() > 0.0 {
+                                    idx.push(k);
+                                    co.push(ck);
+                                }
+                            }
+                            let rhs = row.q_rhs[0];
+                            new_cuts.push((idx, co, rhs));
+                        }
+                        continue;
+                    }
                     let viol = norm - r;
                     if viol > tol {
                         worst = worst.max(viol);
                         // Supporting hyperplane: (q/‖q‖)ᵀ q(x) ≤ r(x).
                         let inv = 1.0 / norm;
                         let u: Vec<f64> = q.iter().map(|v| v * inv).collect();
-                        let dim = row.q_mat.len();
                         let mut idx = Vec::new();
                         let mut co = Vec::new();
                         for k in 0..prog.n {
                             let mut ck = 0.0f64;
-                            for t in 0..dim - 1 {
-                                ck += u[t] * row.q_mat[t + 1][k];
+                            for (&ut, row_q) in u.iter().zip(row.q_mat.iter().skip(1)) {
+                                ck += ut * row_q[k];
                             }
                             ck -= row.q_mat[0][k];
                             if ck.abs() > 0.0 {
@@ -178,8 +239,8 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
                             }
                         }
                         let mut rhs = row.q_rhs[0];
-                        for t in 0..dim - 1 {
-                            rhs -= u[t] * row.q_rhs[t + 1];
+                        for (&ut, &brhs) in u.iter().zip(row.q_rhs.iter().skip(1)) {
+                            rhs -= ut * brhs;
                         }
                         new_cuts.push((idx, co, rhs));
                     }
@@ -194,14 +255,16 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
                         .unwrap();
                     if *lambda_min < -tol {
                         worst = worst.max(-*lambda_min);
-                        // Cut: ⟨v vᵀ, X(x)⟩ ≤ 0.
+                        // Valid cut: ⟨v vᵀ, X(x)⟩ ≥ 0 (any feasible point must
+                        // satisfy this for the eigenvector attaining λ_min < 0).
+                        // Expressed as a `≤` row: -⟨v vᵀ, X(x)⟩ ≤ 0.
                         let mut idx = Vec::new();
                         let mut co = Vec::new();
                         for (k, xk) in block.xs.iter().enumerate() {
                             let mut ck = 0.0f64;
                             for i in 0..block.dim {
                                 for j in 0..block.dim {
-                                    ck += v[i] * xk[i][j] * v[j];
+                                    ck -= v[i] * xk[i][j] * v[j];
                                 }
                             }
                             if ck.abs() > 0.0 {
@@ -212,18 +275,16 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
                         let mut rhs = 0.0f64;
                         for i in 0..block.dim {
                             for j in 0..block.dim {
-                                rhs -= v[i] * block.x0[i][j] * v[j];
+                                rhs += v[i] * block.x0[i][j] * v[j];
                             }
                         }
                         new_cuts.push((idx, co, rhs));
                     }
                 }
                 if new_cuts.is_empty() {
+                    // The objective value is always `cᵀx` at the returned point;
+                    // the sense only selects which point is found.
                     let obj = prog.c.iter().zip(&x).map(|(cc, xx)| cc * xx).sum::<f64>();
-                    let obj = match prog.sense {
-                        Sense::Minimize => obj,
-                        Sense::Maximize => -obj,
-                    };
                     return ConeSolution {
                         status: ConicStatus::Optimal,
                         x,
@@ -249,10 +310,6 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
     match lp_primal(prog, &cuts) {
         Some(x) => {
             let obj = prog.c.iter().zip(&x).map(|(cc, xx)| cc * xx).sum::<f64>();
-            let obj = match prog.sense {
-                Sense::Minimize => obj,
-                Sense::Maximize => -obj,
-            };
             ConeSolution {
                 status: ConicStatus::MaxIterations,
                 x,
@@ -277,10 +334,7 @@ pub fn solve_socp(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolution
 /// Solve the current LP relaxation (objective `c` minimised, with `cuts` as
 /// extra `≤` constraints) and return the primal vector, or `None` if the LP is
 /// infeasible.
-fn lp_primal(
-    prog: &ConeProgram,
-    cuts: &[(Vec<usize>, Vec<f64>, f64)],
-) -> Option<Vec<f64>> {
+fn lp_primal(prog: &ConeProgram, cuts: &[(Vec<usize>, Vec<f64>, f64)]) -> Option<Vec<f64>> {
     let mut model = Model::new(prog.n);
     for (i, &(lo, hi)) in prog.bounds.iter().enumerate() {
         if lo == 0.0 && hi == f64::INFINITY {
@@ -309,19 +363,15 @@ fn lp_primal(
         constant: 0.0,
     });
     for (row, rhs) in prog.eq_a.iter().zip(prog.eq_b.iter()) {
-        let nz_i: Vec<usize> = row
-            .iter()
-            .enumerate()
-            .filter(|&(_, &c)| c != 0.0)
-            .map(|(k, _)| k)
-            .collect();
+        let nz_i: Vec<usize> =
+            row.iter().enumerate().filter(|&(_, &c)| c != 0.0).map(|(k, _)| k).collect();
         let nz_c: Vec<f64> = row.iter().copied().filter(|&c| c != 0.0).collect();
-        model.add_constraint(Constraint::eq(nz_i, nz_c, *rhs));
+        model.add_constraint(Constraint::equality(nz_i, nz_c, *rhs));
     }
     for (idx_c, co_c, rhs) in cuts {
         model.add_constraint(Constraint::le(idx_c.clone(), co_c.clone(), *rhs));
     }
-    let sol = MilpSolver::new().with_threads(1).solve(&model)?;
+    let sol = MilpSolver::new().with_threads(1).solve(&model).ok()?;
     if sol.status != tpt_opt_core::SolverStatus::Optimal {
         return None;
     }
@@ -334,9 +384,11 @@ fn lp_primal(
 /// `k`-th eigenvector (unit length). Converges to machine precision for the
 /// off-diagonal norm; suitable for the small PSD blocks that arise in robust
 /// and convex modelling.
+#[allow(clippy::needless_range_loop)]
 pub fn jacobi_eigen(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
     let n = a.len();
-    let mut v: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+    let mut v: Vec<Vec<f64>> =
+        (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
     let mut iter = 0;
     loop {
         let mut off = 0.0f64;
@@ -367,8 +419,8 @@ pub fn jacobi_eigen(mut a: Vec<Vec<f64>>) -> (Vec<f64>, Vec<Vec<f64>>) {
         let aqq = a[q][q];
         let apq = a[p][q];
         let theta = (aqq - app) / (2.0 * apq);
-        let t = if theta >= 0.0 { 1.0 } else { -1.0 }
-            / (theta.abs() + (1.0 + theta * theta).sqrt());
+        let t =
+            if theta >= 0.0 { 1.0 } else { -1.0 } / (theta.abs() + (1.0 + theta * theta).sqrt());
         let c = 1.0 / (1.0 + t * t).sqrt();
         let s = t * c;
         // Rotate rows/cols p,q.
@@ -406,45 +458,47 @@ mod tests {
 
     #[test]
     fn socp_quarter_disk_maximise() {
-        // max x1 + x2  s.t.  ‖(x1, x2)‖ ≤ 1,  x1 + x2 ≥ 0.5,  x ≥ 0.
-        // SOC binds at the boundary; optimum objective ≈ 1.075 for the
-        // correlated L below (computed independently), definitely > 0.5.
-        let l = vec![
-            vec![0.5f64, 0.3],
-            vec![0.0, 0.4],
-        ];
-        // SOC row: r(x) = 1 - x1,  q(x) = (0.5 x1, 0.3 x1 + 0.4 x2).
+        // max x1 + x2  s.t.  ‖(0.5 x1, 0.3 x1 + 0.4 x2)‖₂ ≤ 1 - x1,
+        //               x1 + x2 ≥ 0.5,  x ≥ 0.
+        // The `≥ 0.5` row is modelled via a slack variable x3 ≥ 0 with the
+        // equality x1 + x2 - x3 = 0.5. The SOC optimum is ≈ 1.075 (computed
+        // independently for this correlated cone); we only assert it beats 1.0.
+        // SOC row: r(x) = 1 - x1,  q(x) = (0.5 x1, 0.3 x1 + 0.4 x2); the slack
+        // variable enters every affine map with zero coefficient (rows are width n).
         let q_mat = vec![
-            vec![-1.0, 0.0],         // r: 1 - x1
-            vec![0.5, 0.0],          // q component 1: 0.5 x1
-            vec![0.3, 0.4],          // q component 2: 0.3 x1 + 0.4 x2
+            vec![-1.0, 0.0, 0.0], // r: 1 - x1
+            vec![0.5, 0.0, 0.0],  // q component 1: 0.5 x1
+            vec![0.3, 0.4, 0.0],  // q component 2: 0.3 x1 + 0.4 x2
         ];
         let q_rhs = vec![1.0, 0.0, 0.0];
         let prog = ConeProgram {
-            n: 2,
-            c: vec![1.0, 1.0],
+            n: 3,
+            c: vec![1.0, 1.0, 0.0],
             sense: Sense::Maximize,
-            bounds: vec![(0.0, f64::INFINITY), (0.0, f64::INFINITY)],
-            eq_a: vec![vec![1.0, 1.0]],
+            // Finite upper bounds keep the LP relaxation bounded; the SOC
+            // optimum (≈1.075) lies well inside them.
+            bounds: vec![(0.0, 2.0), (0.0, 5.0), (0.0, 5.0)],
+            eq_a: vec![vec![1.0, 1.0, -1.0]],
             eq_b: vec![0.5],
             soc_rows: vec![SocRow { q_mat, q_rhs }],
             sdp_blocks: vec![],
         };
-        let sol = solve_socp(&prog, 1e-6, 60);
+        let sol = solve_socp(&prog, 1e-6, 400);
         assert_eq!(sol.status, ConicStatus::Optimal);
         // Feasibility: SOC satisfied within tol.
-        let (r, q, norm) = prog.soc_rows[0].eval(&sol.x);
+        let (r, _q, norm) = prog.soc_rows[0].eval(&sol.x);
         assert!((norm - r) <= 1e-4, "soc violated: norm={norm} r={r}");
         assert!(sol.x[0] + sol.x[1] >= 0.5 - 1e-6);
-        // Known optimum along x1=x2 gives 2*0.5375 = 1.075; allow slack.
+        // Known optimum ≈ 1.075; allow slack.
         assert!(sol.objective > 1.0, "objective too low: {}", sol.objective);
     }
 
     #[test]
     fn socp_infeasible_when_bound_excludes() {
         // min x  s.t. ‖(x, x)‖ ≤ -1  (impossible: a SOC needs r ≥ ‖q‖ ≥ 0).
-        // Build r(x) = -1, q(x) = (x, x): never feasible.
-        let q_mat = vec![vec![-1.0, 0.0], vec![1.0, 1.0], vec![1.0, 1.0]];
+        // Build r(x) = -1, q(x) = (x, x) as functions of the single variable:
+        // q_mat rows have length n=1.
+        let q_mat = vec![vec![-1.0], vec![1.0], vec![1.0]];
         let q_rhs = vec![-1.0, 0.0, 0.0];
         let prog = ConeProgram {
             n: 1,
@@ -475,7 +529,7 @@ mod tests {
             soc_rows: vec![],
             sdp_blocks: vec![SdpBlock { dim: 2, x0, xs }],
         };
-        let sol = solve_conic(&prog, 1e-6, 80);
+        let sol = solve_conic(&prog, 1e-6, 400);
         assert_eq!(sol.status, ConicStatus::Optimal);
         assert!((sol.x[0] + 1.0).abs() < 1e-3, "x = {}", sol.x[0]);
     }

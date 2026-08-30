@@ -17,6 +17,7 @@
 //! | `multi`      | `tpt-opt-multi`       | NSGA-II/III, Pareto fronts, hypervolume, knee points, linear scalarisation |
 //! | `robust`     | `tpt-opt-robust`      | Two-/multi-stage stochastic programming, SAA, VSS/EVPI, chance constraints, Bertsimas–Sim, DRO |
 //! | `decompose`  | `tpt-opt-decompose`   | Benders, Dantzig–Wolfe + column generation, branch-and-price, Lagrangian relaxation, structure detection |
+//! | `conic`      | `tpt-opt-conic`       | Second-order-cone (SOCP) and semidefinite (SDP) programming via Kelley cutting planes over the LP engine |
 //! | `all-solvers`| *(meta)*              | Enables every solver family above |
 //!
 //! With **no features** the crate exposes only the always-on core surface
@@ -178,4 +179,12 @@ pub use tpt_opt_decompose::{
     BranchAndPrice, Column, DantzigWolfe, DualConfig, DualResult, DwBlock, DwLocalRow, DwProblem,
     DwResult, LpPricer, Pricer, RecourseBlock, RmpPool, RowSense, Stabilization, Strategy,
     StructureReport,
+};
+
+// ---- Conic (SOCP / SDP) -------------------------------------------------
+#[cfg(feature = "conic")]
+pub use tpt_opt_conic as conic;
+#[cfg(feature = "conic")]
+pub use tpt_opt_conic::{
+    solve_conic, solve_socp, ConeProgram, ConeSolution, ConicStatus, SdpBlock, SocRow,
 };

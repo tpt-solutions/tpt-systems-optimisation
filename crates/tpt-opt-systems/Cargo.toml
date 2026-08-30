@@ -28,6 +28,7 @@ all-features = true
     tpt-opt-multi = { workspace = true, optional = true }
     tpt-opt-robust = { workspace = true, optional = true }
     tpt-opt-decompose = { workspace = true, optional = true }
+    tpt-opt-conic = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -51,6 +52,9 @@ robust = ["dep:tpt-opt-robust"]
 # Large-scale decomposition (Benders, Dantzig-Wolfe, branch-and-price,
 # Lagrangian).
 decompose = ["dep:tpt-opt-decompose"]
+# Conic (second-order-cone / semidefinite) optimisation via Kelley cutting
+# planes.
+conic = ["dep:tpt-opt-conic"]
 
 # Convenience meta-feature enabling every solver family at once.
 all-solvers = [
@@ -62,4 +66,5 @@ all-solvers = [
     "multi",
     "robust",
     "decompose",
+    "conic",
 ]

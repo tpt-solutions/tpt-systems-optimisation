@@ -17,6 +17,7 @@ enable exactly the solver families you need through flat Cargo features.
 | `multi`       | `tpt-opt-multi`     | NSGA-II/III, Pareto fronts, hypervolume, knee points/trade-offs, linear scalarisation |
 | `robust`      | `tpt-opt-robust`    | Two-/multi-stage stochastic programming, SAA, VSS/EVPI, chance constraints, Bertsimas–Sim budgeted robustness, distributionally robust optimisation |
 | `decompose`   | `tpt-opt-decompose` | Benders decomposition, Dantzig–Wolfe + column generation, branch-and-price, Lagrangian relaxation, structure detection |
+| `conic`       | `tpt-opt-conic`     | Second-order-cone (SOCP) and semidefinite (SDP) programming via Kelley cutting planes over the LP engine |
 | `all-solvers` | *(meta-feature)*    | Enables every solver family at once |
 
 With **no features** enabled the crate exposes only the always-on core

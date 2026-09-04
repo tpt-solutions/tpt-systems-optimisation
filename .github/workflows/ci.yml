@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
         with:
           components: rustfmt
       - run: cargo fmt --all --check
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
         with:
           components: clippy
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - uses: taiki-e/install-action@cargo-nextest
       - run: cargo nextest run --workspace --all-features
       - run: cargo test --workspace --all-features --doc
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
         with:
           targets: thumbv6m-none-eabi
       # Only crates the spec marks no_std-compatible are checked here; the
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - uses: taiki-e/install-action@cargo-hack
       - run: cargo hack --package tpt-opt-systems --feature-powerset --no-dev-deps check
 
@@ -88,7 +88,7 @@ jobs:
           - "milp,network"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - run: cargo check -p tpt-opt-systems --no-default-features --features "${{ matrix.features }}"
 
   msrv:
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - run: cargo build --workspace --all-features
 
   semver-checks:
@@ -105,7 +105,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - uses: obi1kenobi/cargo-semver-checks-action@v2
 
   bench-smoke:
@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - run: cargo bench --workspace --no-run
 
   perf-report:
@@ -125,7 +125,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - run: cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture
 
   benchmark-corpus:
@@ -138,6 +138,6 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.120
       - run: cargo xtask fetch-fixtures
       - run: cargo test -p tpt-opt-milp --test benchmark_corpus -- --nocapture

@@ -1,0 +1,21 @@
+[package]
+name = "tpt-opt-nls"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Nonlinear least squares: Gauss-Newton, Levenberg-Marquardt and Powell dogleg solvers with forward/reverse autodiff, robust losses, bounds, and sparse normal equations."
+readme = "README.md"
+keywords = ["least-squares", "optimization", "gauss-newton", "levenberg-marquardt", "autodiff"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-nls"
+
+[dependencies]
+tpt-opt-core = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

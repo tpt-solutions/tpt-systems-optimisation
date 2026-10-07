@@ -29,6 +29,8 @@ all-features = true
     tpt-opt-robust = { workspace = true, optional = true }
     tpt-opt-decompose = { workspace = true, optional = true }
     tpt-opt-conic = { workspace = true, optional = true }
+    tpt-opt-nls = { workspace = true, optional = true }
+    tpt-opt-factorgraph = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -55,6 +57,12 @@ decompose = ["dep:tpt-opt-decompose"]
 # Conic (second-order-cone / semidefinite) optimisation via Kelley cutting
 # planes.
 conic = ["dep:tpt-opt-conic"]
+# Nonlinear least squares (Gauss-Newton / Levenberg-Marquardt / dogleg,
+# autodiff, robust losses, sparse normal equations).
+nls = ["dep:tpt-opt-nls"]
+# Factor-graph / SLAM least squares (pose graphs, bundle adjustment);
+# implies `nls` for the shared sparse/autodiff machinery.
+factorgraph = ["dep:tpt-opt-factorgraph", "nls"]
 
 # Convenience meta-feature enabling every solver family at once.
 all-solvers = [
@@ -67,4 +75,6 @@ all-solvers = [
     "robust",
     "decompose",
     "conic",
+    "nls",
+    "factorgraph",
 ]

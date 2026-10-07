@@ -1,0 +1,22 @@
+[package]
+name = "tpt-opt-factorgraph"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Factor-graph / SLAM-style least squares: manifold variables (SO2/SE2/SO3/SE3), standard factors, robust noise models, sparse Gauss-Newton/LM, Schur complement and marginal covariances."
+readme = "README.md"
+keywords = ["factor-graph", "slam", "pose-graph", "bundle-adjustment", "least-squares"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-factorgraph"
+
+[dependencies]
+tpt-opt-core = { workspace = true }
+tpt-opt-nls = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

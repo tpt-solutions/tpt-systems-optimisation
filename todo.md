@@ -572,6 +572,23 @@ separate, later, human-triggered action.*
 - [ ] **tpt-math published-API divergence (NEW, 2026-08-23)**: the real `tpt-math-*` crates are now on crates.io (0.1.0) but implement a different design than the `deps/` shims this workspace was built against (unit-tagged faer/uom dense algebra vs. sparse CSR/CSC/Triplet + dense helpers). Every `cargo publish --dry-run` compiles against the registry versions and fails at `tpt-opt-core` with `no CscMatrix in the root`. Resolution options: port `tpt-opt-*` to the published API, publish the shims under new names, or extend tpt-math with the sparse surface â€” needs an owner decision before any publish
   - [x] **Publish blockers re-diagnosed (2026-08-30)**: the `tpt-opt-core` `CscMatrix` blocker is RESOLVED (`tpt-math-linalg-sparse` published; `tpt-opt-core` dry-runs clean against the published `tpt-math-*` crates). One remaining blocker: `cargo publish` ordering - every downstream `tpt-opt-*` crate needs its `tpt-opt-*` dependencies already on crates.io, so they can only be dry-run/published after the live (out-of-scope) publish of earlier crates. The MINLP regression is **RESOLVED** (2026-08-30): `tpt-opt-core`'s `nlp` module now ships a self-contained BFGS inner solver (published CG as primary), plus settled-only multiplier/penalty updates and a complementarity convergence check; all 19 `tpt-opt-minlp` lib tests + 2 benchmark tests + the fuzz test pass, so `cargo test --workspace` is green.
  - [x] **Benchmark corpora size**: MIPLIB 2017 / MINLPLib / Netlib / CSPLib instance files are large external downloads — **RESOLVED (2026-08-23)**: fixtures live at repo-root `tests/fixtures/` (outside every crate directory, so they can never enter a packaged `.crate` file), downloaded on demand by `cargo xtask fetch-fixtures`, auto-added to `.gitignore`, and consumed by skip-if-absent corpus tests; CI fetches them in the non-blocking `benchmark-corpus` job only
+- [ ] **Local `cargo deny check` fails at metadata fetch on the pinned 1.84
+      toolchain (2026-10-07, pre-existing)**: a fresh dependency resolution
+      pulls `wit-bindgen 0.57.1` (requires edition2024, unsupported by cargo
+      1.84) via the published chain `tpt-math-prob → rand 0.9 → rand_core →
+      getrandom 0.3.4 → wasip2 1.0.4` (wasi-only, never compiled on this
+      host — plain builds/tests are unaffected). The last successful local
+      deny run (2026-08-30) predates those releases. Phase 13 adds zero new
+      dependencies, so the license/ban surface is unchanged. Unblocks: run
+      deny under rust ≥1.87 (CI uses 1.120) or downgrade the wasip2 chain in
+      a committed lockfile.
+- [ ] **thumbv6m no-std build of `tpt-opt-core` broken by the published
+      `tpt-math-linalg-sparse` (2026-10-07, pre-existing)**: the published
+      crate enables `num-traits` default features (std), which cannot build
+      for `thumbv6m-none-eabi` (E0463). Verified working 2026-08-23, before
+      the 2026-08-30 swap from the in-repo shims to the published crates.
+      Unblocks: republish the sparse crate with `num-traits`/`libm`
+      `default-features = false`.
 - [ ] **SCIP/Gurobi/CPLEX deferral**: spec Â§4 mentions these as pluggable via feature flags; explicitly out of scope for this pass on licensing grounds â€” revisit only if a future consumer has a commercial license and requests it as an opt-in, clearly-labeled non-default feature
 - [x] **MilpSolver premature/suboptimal termination on some feature-heavy instances** (discovered while testing the new MPS/LP readers): on max 3X+4Y+Z+5(constant) s.t. 2X+3Y+4Z<=9, Z+W>=1, W in [2,5], X,Y integer, Z in [0,2.5], the bundled B&B returned Optimal 17 instead of the true optimum 18 (X=3,Y=1,Z=0,W=5) after exploring a single node. **FIXED (2026-08-23)**: root cause was an objective-convention mismatch â€” `lp.rs` initialised its objective accumulator at 0 and never added `model.objective.constant`, while heuristic/warm-start incumbents are scored with `Objective::eval` (constant included). On a maximisation model with a positive constant every node bound looked dominated by the incumbent, so the entire tree was pruned immediately (minimisation had the mirror-image bias). Fix: `solve_lp_state` now starts `obj_constant` at `model.objective.constant`, matching the HiGHS binding which already restored the constant after its solve; all bound/delta consumers in `milp.rs` shift uniformly so pseudo-costs and pruning stay consistent. Regression tests added (`crates/tpt-opt-milp/tests/repro_search_bug.rs`: maximisation finds 18, minimisation-with-constant variant finds 87); both format.rs handwritten-feature tests now carry real solve assertions (18 and 8 respectively); full workspace test suite passes.
 
@@ -728,3 +745,195 @@ that Phase 11 deferred for `tpt-opt-robust` ("needs a conic solver").
 - [x] `cargo package -p tpt-opt-conic --list` clean — README/CHANGELOG/LICENSE-MIT/LICENSE-APACHE included, zero warnings
 - [ ] `cargo publish --dry-run` clean — **BLOCKED (same publish-ordering dependency as the other `tpt-opt-*` crates)**: `tpt-opt-conic` depends on `tpt-opt-core` + `tpt-opt-milp`, both of which must be on crates.io before its `--dry-run` can resolve. Packaging (`cargo package --list`) is clean.
 
+
+## Phase 13 — Coverage gaps: NLS, factor graphs & supporting math (2026-10-07)
+
+*Gap analysis found no nonlinear least squares, factor-graph/SLAM, autodiff or
+sparse direct factorisations in the workspace. The only continuous nonlinear
+solver is the augmented-Lagrangian/BFGS shim in `deps/tpt-math-optimize-general`.
+Items are ordered by priority; 13a/13b are prerequisites for 13c/13d.
+**Status: 13a-13d implemented and verified (2026-10-07).** Two new crates —
+`tpt-opt-nls` (42 lib tests + 8 MINPACK-style integration tests + 7 doctests)
+and `tpt-opt-factorgraph` (10 lib tests + 8 SLAM integration tests + 1
+doctest) — fmt/clippy `-D warnings` clean, rustdoc `-D warnings` clean, full
+`cargo test --workspace` green (315 passed / 0 failed).*
+
+### 13a — Prerequisites
+
+- [x] Check whether published `tpt-math-linalg*` provides sparse Cholesky/LDL/LU —
+      **verified 2026-10-07 via docs.rs**: `tpt-math-linalg-sparse` 0.1.0 ships
+      only storage (`CooMatrix`/`CsrMatrix`/`CscMatrix`) + iterative solvers
+      (`conjugate_gradient`, `bicgstab`) — no direct factorisations, no
+      fill-reducing orderings. Added them in-repo (next items).
+- [x] Forward-mode autodiff (dual numbers) for residual/Jacobian evaluation,
+      replacing finite differences — `tpt-opt-nls::dual`: value + gradient
+      duals with empty-gradient "plain mode" so one closure serves both
+      residual and Jacobian evaluation; ops verified against central
+      differences; exact Jacobians in one seeded evaluation
+      (`JacobianMode::Autodiff` is the NLS default; FD remains a fallback).
+- [x] Reverse-mode autodiff (optional, for large residual vectors) —
+      `tpt-opt-nls::reverse`: an Rc value graph with operator-style
+      expressions and eager edge partials; one backward pass gives the
+      gradient of a scalar output regardless of parameter count; iterative
+      topological sort and an iterative `Drop` impl keep 50 000+-node graphs
+      stack-safe (tested); `Value::jacobian` gives one pass per output.
+- [x] Decide home for new math (upstream `tpt-math-*` vs. in-repo `deps/`) —
+      **decided: inside the consuming crate**, as `tpt-opt-nls` modules
+      (`dual`, `reverse`, `dense`, `sparse`). Upstream `tpt-math` is
+      published/frozen at 0.1.0 and uneditable from this repo; the `deps/`
+      shims are legacy dev-only surface; `tpt-opt-factorgraph` consumes
+      everything through its `tpt-opt-nls` dependency. Promotion to a future
+      `tpt-math` release is a copy, not a rewrite. `spec.txt` updated.
+
+### 13b — `tpt-opt-nls` (nonlinear least squares)
+
+- [x] Scaffold `crates/tpt-opt-nls/` (workspace-inherited Cargo.toml, `lib.rs`,
+      README, CHANGELOG, licences)
+- [x] `Residual` / `Jacobian` traits plus a closure-based builder with autodiff
+      and finite-difference fallbacks — `NlsProblem::builder().residual_block(m, |x: &[Dual], out| …)`
+      with `JacobianMode::{Autodiff, FiniteDifference}`; problems validate via
+      `NlsProblem::validate` (crossed bounds rejected).
+- [x] Gauss-Newton solver — backtracking line search with robust-cost
+      acceptance and a Tikhonov floor on singular normal equations.
+- [x] Levenberg-Marquardt solver (adaptive damping, trust-region gain ratio) —
+      Nielsen gain-ratio λ update with trace-scaled initial damping
+      (degenerate starts such as Beale's zero Jacobian column behave);
+      free-subspace (projected-Newton) step masking for bounds.
+- [x] Powell dogleg solver — trust region blending Cauchy and Gauss-Newton
+      steps, projected, with gain-ratio region updates.
+- [x] Robust loss functions (Huber, Cauchy, Tukey, soft-L1) via IRLS /
+      loss-scaled residuals — `loss.rs` with `rho`/`drho`/`weight` matching
+      scipy conventions; solvers compare like-for-like robust costs
+      (`NlsProblem::loss_cost`). Analytically verified optima: Huber δ=0.5 on
+      the 4-clean+1-outlier line gives exactly (2.25, 0.75); δ=0.2 gives
+      (2.1, 0.9).
+- [x] Bound constraints (projected / reflective trust region) — projected:
+      active-set masking + trial projection; reflective variant documented as
+      future work. Test: bound-constrained Rosenbrock (x ≥ 1.5) lands on
+      (1.5, 2.25), cost 0.125.
+- [x] Sparse normal equations path using the sparse Cholesky from 13a —
+      `LinearSolver::Sparse` assembles H triplets, orders with greedy
+      minimum degree (exact-degree AMD core; approximate-degree refinements
+      future work), factorises with up-looking sparse LDLᵀ
+      (`sparse::analyze` + `SymbolicLdl::factorize`), and re-analyses once on
+      structural pattern drift (`SparseError::PatternMismatch`). Verified
+      against dense on random SPD (both orderings), a 5×5 grid (fill ≤
+      natural), and a 300-variable chain.
+- [x] Covariance / uncertainty estimate from `(JᵀJ)⁻¹` —
+      `NlsResult::covariance()` = σ̂²(JᵀJ)⁻¹ with σ̂² = 2·cost/(m−n), plus
+      `standard_errors()`.
+- [x] Status/solution types and termination criteria consistent with
+      `tpt-opt-core` tolerances — `NlsConfig::from_tolerances` (ftol ←
+      optimality_gap, gtol ← feasibility, xtol ← pivoting) and
+      `NlsStatus::to_solver_status` → `SolverStatus`.
+- [x] Tests: Rosenbrock, Powell singular, curve fitting, MINPACK problem set —
+      `tests/minpack.rs`: Brown almost-linear (root-ness verified; the n=10
+      system has a second genuine root beyond all-ones), Beale (3, 0.5) from
+      the degenerate (1, 1) start, Freudenstein–Roth root, Gaussian peak fit,
+      exponential fit with covariance sanity, Cauchy outlier rejection,
+      sparse-vs-dense agreement on a 300-var chain, FD+dogleg cross-check.
+- [x] Rustdoc with runnable example; `cargo fmt` / `clippy -D warnings` /
+      `cargo deny` clean — rustdoc built with `-D warnings`; deny: the new
+      crate adds **zero external dependencies** (only workspace-internal
+      MIT OR Apache-2.0), so the license/ban surface is unchanged (see the
+      toolchain note under Open Risks for the local 1.84 `cargo deny`
+      metadata-fetch failure).
+- [x] Crates.io metadata; `cargo package --list` clean — README/CHANGELOG/
+      LICENSE-MIT/LICENSE-APACHE included, zero warnings.
+- [ ] Reserve `tpt-opt-nls` name on crates.io — reservation completes at
+      first publish (live publish out of scope as for the other crates).
+- [ ] `cargo publish --dry-run` clean — same publish-ordering dependency as
+      the other `tpt-opt-*` crates (needs `tpt-opt-core` published first).
+
+### 13c — `tpt-opt-factorgraph`
+
+- [x] Scaffold `crates/tpt-opt-factorgraph/` (depends on `tpt-opt-nls`)
+- [x] `Manifold` trait with SO2/SE2/SO3/SE3 and Euclidean variables
+      (retract / local) — closed `Manifold` enum over `f64` storage:
+      Euclidean(n), SO(2) angle, SE(2) `(x, y, θ)`, SO(3) quaternion
+      `(x, y, z, w)`, SE(3) `(t, q)`; exact exp/log (SE(2) V-matrix, SE(3)
+      V/V⁻¹, short-arc quaternion log); retract/local round-trip property
+      tested on every variant.
+- [x] `Factor` trait, factor graph container, keyed variable values —
+      `Factor { keys, dim, evaluate }` over `VarView`s; insertion-ordered
+      `KeyedValues` (deterministic tangent offsets); `FactorGraph` with
+      per-factor noise models, robust kernels, and linearisation caches.
+- [x] Standard factors: prior, between (odometry/loop closure), reprojection,
+      range/bearing — between compares at group level
+      (`local(measured, x₁⁻¹∘x₂)`), which is what makes SE(3) between
+      factors type-correct (a tangent-vs-storage mix was caught by the
+      SE(3) chain test).
+- [x] Noise models (isotropic, diagonal, full covariance) and robust kernels —
+      unit/isotropic/diagonal/Gaussian-by-sqrt-information whitening; Huber/
+      Cauchy/Tukey/soft-L1 IRLS weights on whitened residuals (δ is in
+      whitened units); `set_factor_robust` enables the standard two-stage
+      workflow (L2 warm start → kernels; cold-start IRLS proven meaningless
+      by the pose-graph test).
+- [x] Variable ordering (AMD/COLAMD) and sparse Gauss-Newton/LM on the graph —
+      minimum-degree ordering on the block pattern (13a machinery); LM with
+      numeric **on-manifold** Jacobians (central differences through
+      `retract`), Nielsen damping with trace-scaled λ₀, and the block
+      predicted-decrease (cross blocks enter δᵀHδ twice — the missing
+      factor of 2 here was caught by the 2-D pose graph stalling at a large
+      gradient).
+- [x] Schur-complement elimination for bundle adjustment — `solve_schur`:
+      damped point blocks inverted densely, reduced camera system solved
+      with the sparse LDLᵀ, points recovered by back-substitution; verified
+      cost- and solution-equal to the batch solve on the BA fixture.
+- [x] Incremental / iSAM2-style updates (Bayes tree) — `solve_incremental`:
+      iSAM-style selective re-linearisation (factors adjacent to changed
+      keys only; cached blocks ride along with first-order `r̃ ← r̃ + J̃ δ`
+      correction); verified cost- and solution-equal to a fresh batch solve
+      after adding an edge. A full Bayes tree with fluid reordering remains
+      future work.
+- [x] Marginal covariances — `marginal_covariance`: the whitened Hessian is
+      the Gaussian information matrix; per-key blocks from sparse
+      unit-column solves; verified against the analytic 2×2 posterior
+      (Var(x₁) = I₀₀/det(I)).
+- [x] Tests: 2D pose graph (M3500/Intel-style), 3D pose graph, small bundle
+      adjustment vs. known optimum — `tests/slam.rs`: 25-pose Manhattan grid
+      (dead-reckoned init, group-element measurements, rms < 0.1),
+      one-corrupted-closure Huber test, SE(3) chain with loop closure, BA
+      recovering points to 1e-4, Schur/batch and incremental/batch
+      agreement, analytic marginal covariance.
+- [x] Rustdoc, fmt/clippy/deny clean, README/CHANGELOG/licences, crates.io
+      metadata — same zero-new-dependency note as 13b.
+- [ ] Reserve `tpt-opt-factorgraph` name on crates.io — at first publish.
+- [ ] `cargo publish --dry-run` clean — publish-ordering dependency (needs
+      `tpt-opt-nls` before it; see below).
+
+### 13d — Umbrella and docs integration
+
+- [x] Add `nls` and `factorgraph` feature flags and re-exports to
+      `tpt-opt-systems` — flat features per the spec; `factorgraph` implies
+      `nls`; both wired into `all-solvers`; whole-crate aliases
+      (`systems::nls`, `systems::factorgraph`) plus curated flat re-exports
+      (`NlsProblem`, `levenberg_marquardt`, `FactorGraph`, `Manifold`, …);
+      feature-matrix table in the crate docs updated.
+- [x] Add both crates to workspace members and the root README crate-map table
+      — members join via the `crates/*` glob; README rows + build order
+      `… decompose → nls → factorgraph → systems` updated.
+- [x] Update `spec.txt` scope notes (NLS/SLAM now in scope; MPC still
+      delegated to `tpt-eng-controls`) — IN SCOPE (added 2026-10-07) entry
+      plus an updated OUT OF SCOPE note on where the new math lives.
+- [x] Verify `cargo build --no-default-features` and the xtask no_std build
+      still pass — umbrella `--no-default-features` builds clean exposing
+      only the core surface. **The xtask no-std (thumbv6m) check is currently
+      broken on HEAD by the published dependency chain, independent of this
+      phase**: `tpt-math-linalg-sparse` enables `num-traits` default features
+      (std), which cannot compile for a no-std target (E0463 can't find
+      `std`). Last verified working 2026-08-23, before the 2026-08-30 swap
+      to the published `tpt-math-*` crates. Needs an upstream fix (republish
+      the sparse crate with `num-traits/default-features = false`) or a
+      vendored fork.
+- [x] Publish ordering note: `tpt-opt-nls` before `tpt-opt-factorgraph`
+
+### 13e — Other gaps (lower priority)
+
+- [ ] True interior-point QP solver (replace the augmented-Lagrangian convex QP shim)
+- [ ] Interior-point SOCP/SDP in `tpt-opt-conic` (replace Kelley cutting planes) for accuracy and speed
+- [ ] Derivative-free local methods: Nelder-Mead, Powell, CMA-ES
+- [ ] Bayesian optimisation (GP surrogate)
+- [ ] L-BFGS and trust-region NLP methods
+- [ ] Global NLP via spatial branch-and-bound
+- [ ] Revisit the Phase 11 deferred `tpt-opt-robust` SOCP reformulation now that `tpt-opt-conic` exists

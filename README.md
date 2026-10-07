@@ -33,6 +33,8 @@ for benchmarking or production use without changing model code.
 | [`tpt-opt-robust`](./crates/tpt-opt-robust) | Robust & stochastic optimisation under uncertainty | [docs.rs](https://docs.rs/tpt-opt-robust) |
 | [`tpt-opt-decompose`](./crates/tpt-opt-decompose) | Large-scale decomposition (Benders, Dantzig-Wolfe, Lagrangian) | [docs.rs](https://docs.rs/tpt-opt-decompose) |
 | [`tpt-opt-conic`](./crates/tpt-opt-conic) | Conic (SOCP/SDP) optimisation via Kelley cutting planes | [docs.rs](https://docs.rs/tpt-opt-conic) |
+| [`tpt-opt-nls`](./crates/tpt-opt-nls) | Nonlinear least squares (Gauss-Newton / LM / dogleg, autodiff, robust losses, sparse LDLᵀ) | [docs.rs](https://docs.rs/tpt-opt-nls) |
+| [`tpt-opt-factorgraph`](./crates/tpt-opt-factorgraph) | Factor-graph / SLAM least squares (pose graphs, bundle adjustment, Schur, iSAM-style updates) | [docs.rs](https://docs.rs/tpt-opt-factorgraph) |
 | [`tpt-opt-systems`](./crates/tpt-opt-systems) | Feature-gated umbrella re-exporting all of the above | [docs.rs](https://docs.rs/tpt-opt-systems) |
 | [`tpt-opt-cli`](./crates/tpt-opt-cli) | Command-line front end: solve an MPS/LP file from the shell | [docs.rs](https://docs.rs/tpt-opt-cli) |
 
@@ -41,7 +43,7 @@ stable beforehand.)
 
 ## Build order
 
-`core → milp → network → minlp → cp → heuristic → multi → robust → decompose → systems`
+`core → milp → network → minlp → cp → heuristic → multi → robust → decompose → nls → factorgraph → systems`
 
 ## Tier 2 consumption examples
 

@@ -18,6 +18,8 @@
 //! | `robust`     | `tpt-opt-robust`      | Two-/multi-stage stochastic programming, SAA, VSS/EVPI, chance constraints, Bertsimas–Sim, DRO |
 //! | `decompose`  | `tpt-opt-decompose`   | Benders, Dantzig–Wolfe + column generation, branch-and-price, Lagrangian relaxation, structure detection |
 //! | `conic`      | `tpt-opt-conic`       | Second-order-cone (SOCP) and semidefinite (SDP) programming via Kelley cutting planes over the LP engine |
+//! | `nls`        | `tpt-opt-nls`         | Nonlinear least squares: Gauss-Newton / Levenberg-Marquardt / dogleg, forward+reverse autodiff, robust M-estimator losses, box constraints, sparse LDLᵀ normal equations |
+//! | `factorgraph`| `tpt-opt-factorgraph` | Factor-graph / SLAM least squares: SO(2)/SE(2)/SO(3)/SE(3) manifolds, pose graphs, bundle adjustment, Schur complement, marginal covariances (implies `nls`) |
 //! | `all-solvers`| *(meta)*              | Enables every solver family above |
 //!
 //! With **no features** the crate exposes only the always-on core surface
@@ -187,4 +189,23 @@ pub use tpt_opt_conic as conic;
 #[cfg(feature = "conic")]
 pub use tpt_opt_conic::{
     solve_conic, solve_socp, ConeProgram, ConeSolution, ConicStatus, SdpBlock, SocRow,
+};
+
+// ---- Nonlinear least squares ---------------------------------------------
+#[cfg(feature = "nls")]
+pub use tpt_opt_nls as nls;
+#[cfg(feature = "nls")]
+pub use tpt_opt_nls::{
+    gauss_newton, levenberg_marquardt, powell_dogleg, JacobianMode,
+    LinearSolver as NlsLinearSolver, Loss, NlsConfig, NlsProblem, NlsResult, NlsStatus,
+};
+
+// ---- Factor graphs / SLAM -------------------------------------------------
+#[cfg(feature = "factorgraph")]
+pub use tpt_opt_factorgraph as factorgraph;
+#[cfg(feature = "factorgraph")]
+pub use tpt_opt_factorgraph::{
+    solve as solve_factor_graph, solve_incremental as solve_factor_graph_incremental,
+    solve_schur as solve_factor_graph_schur, BetweenFactor, FactorGraph, FactorSolverConfig,
+    Manifold, NoiseModel, PriorFactor, RangeBearingFactor, ReprojectionFactor, SolveOutcome,
 };

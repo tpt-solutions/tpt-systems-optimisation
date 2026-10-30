@@ -10,11 +10,15 @@ Pure Rust, no `unsafe`, `std` by default (no_std-compatible core via
 
 ## What is implemented
 
+* **Interior-point barrier method for SOCP** (`solve_socp_ip`, used by
+  `solve_socp` when there are no SDP blocks). Equalities are eliminated by an
+  exact null-space parameterisation, feasibility is found by a slack-relaxed
+  phase I, and the Lorentz-cone barrier is followed by damped Newton centring.
 * **Kelley cutting planes (outer approximation)** over the canonical LP engine
-  (`solve_conic` / `solve_socp`). Every cone constraint is replaced by a
-  sequence of valid supporting hyperplanes; because each cut is a supporting
-  hyperplane of the cone, the relaxation stays a relaxation of the true conic
-  problem and converges to the conic optimum.
+  (`solve_conic`, and `solve_socp` when SDP blocks are present). Every cone
+  constraint is replaced by a sequence of valid supporting hyperplanes; because
+  each cut is a supporting hyperplane of the cone, the relaxation stays a
+  relaxation of the true conic problem and converges to the conic optimum.
 * **Second-order-cone (SOCP) rows** — `‖q(x)‖₂ ≤ r(x)` in standard affine
   form (`SocRow`), with a zero-norm guard that separates via the necessary
   condition `r(x) ≥ 0` when the cone direction degenerates.

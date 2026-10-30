@@ -38,6 +38,20 @@ starting from the initial `0.1.0` scaffold.
 
 ## [Unreleased]
 
+### Added
+
+- `ip` module: interior-point log-barrier SOCP solver (`solve_socp_ip`).
+  Equalities are removed by an exact null-space parameterisation, feasibility
+  is found by a slack-relaxed phase I, and the Lorentz-cone barrier
+  `−ln(F₀² − ‖F₁‖²)` is followed by damped Newton centring. Infeasibility is
+  reported when the phase-I slack cannot be driven negative.
+
+### Changed
+
+- `solve_socp` now uses the interior-point solver when there are no SDP
+  blocks. Programs with SDP blocks still use the Kelley cutting-plane
+  `solve_conic`. SDP is not yet covered by the interior-point method.
+
 ### Not yet implemented (see `todo.md`)
 - Trust-region / analytic-centre regularisation to reduce cutting-plane
   tailing-off (the method converges but can need many rounds on stiff cones).

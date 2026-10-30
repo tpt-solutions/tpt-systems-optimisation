@@ -1,13 +1,15 @@
 //! Conic optimisation: second-order-cone (SOCP) and semidefinite (SDP)
 //! solvers built on top of the workspace's verified LP engine.
 //!
-//! Both solvers use **Kelley cutting planes** (outer approximation): each
-//! cone constraint is replaced by a sequence of valid linear supports. The
-//! LP relaxation is solved with [`tpt_opt_milp::MilpSolver`] (all variables
-//! continuous, so it solves the LP relaxation) and tightened until every cone
-//! constraint is satisfied to `tol`. Because every cut is a valid supporting
-//! hyperplane of the cone, the relaxation stays a relaxation of the true conic
-//! problem and converges to the conic optimum.
+//! SOCP programs are solved by an **interior-point barrier method**
+//! ([`ip::solve_socp_ip`], used by [`solve_socp`] when there are no SDP
+//! blocks). SDP blocks, and programs that mix them with cones, use **Kelley
+//! cutting planes** (outer approximation) via [`solve_conic`]: each cone
+//! constraint is replaced by a sequence of valid linear supports. That LP
+//! relaxation is solved with [`tpt_opt_milp::MilpSolver`] and tightened until
+//! every cone constraint is satisfied to `tol`. Because every cut is a valid
+//! supporting hyperplane of the cone, the relaxation stays a relaxation of the
+//! true conic problem and converges to the conic optimum.
 //!
 //! This makes the crate a drop-in conic solver for the robust-optimisation
 //! workflow (ellipsoidal uncertainty → SOCP) without vendoring a bespoke
@@ -45,6 +47,9 @@ use std::vec::Vec;
 use tpt_opt_core::model::{Model, Objective, Sense};
 use tpt_opt_core::{Constraint, Solver, VarBound};
 use tpt_opt_milp::MilpSolver;
+
+pub mod ip;
+pub use ip::solve_socp_ip;
 
 /// Outcome of a conic solve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,8 +332,16 @@ pub fn solve_conic(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolutio
 }
 
 /// Convenience: solve a pure SOCP program.
+///
+/// Programs without SDP blocks use the interior-point barrier method
+/// ([`solve_socp_ip`]). Programs with SDP blocks fall back to the cutting-plane
+/// [`solve_conic`], since the barrier method here covers second-order cones only.
 pub fn solve_socp(prog: &ConeProgram, tol: f64, max_iter: usize) -> ConeSolution {
-    solve_conic(prog, tol, max_iter)
+    if prog.sdp_blocks.is_empty() {
+        solve_socp_ip(prog, tol, max_iter)
+    } else {
+        solve_conic(prog, tol, max_iter)
+    }
 }
 
 /// Solve the current LP relaxation (objective `c` minimised, with `cuts` as

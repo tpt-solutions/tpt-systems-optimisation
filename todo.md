@@ -930,10 +930,46 @@ doctest) — fmt/clippy `-D warnings` clean, rustdoc `-D warnings` clean, full
 
 ### 13e — Other gaps (lower priority)
 
-- [ ] True interior-point QP solver (replace the augmented-Lagrangian convex QP shim)
-- [ ] Interior-point SOCP/SDP in `tpt-opt-conic` (replace Kelley cutting planes) for accuracy and speed
-- [ ] Derivative-free local methods: Nelder-Mead, Powell, CMA-ES
-- [ ] Bayesian optimisation (GP surrogate)
-- [ ] L-BFGS and trust-region NLP methods
-- [ ] Global NLP via spatial branch-and-bound
-- [ ] Revisit the Phase 11 deferred `tpt-opt-robust` SOCP reformulation now that `tpt-opt-conic` exists
+Status (2026-10-30): items below were approved and implemented in this pass
+unless marked open. Each new module has unit tests; see the crate CHANGELOGs.
+
+- [x] True interior-point QP solver — `tpt-opt-core::qp` (`solve_qp`):
+      Mehrotra predictor-corrector on the dense KKT system, with a shared
+      `lu_solve`; 7 tests including KKT-residual checks. **The augmented-
+      Lagrangian shim is kept.** No existing caller solves a pure QP (the OA
+      master is a MILP; subproblems are general NLPs), so there was nothing to
+      switch. Switch callers when a QP-shaped subproblem is identified.
+- [x] Interior-point SOCP — `tpt-opt-conic::ip` (`solve_socp_ip`): log-barrier
+      method with null-space equality elimination and slack-relaxed phase I;
+      `solve_socp` uses it when there are no SDP blocks. **SDP is still on
+      Kelley cutting planes** (open).
+- [x] Derivative-free local methods: Nelder-Mead, Powell — implemented in
+      `tpt-opt-core::unconstrained` (`nelder_mead`, `powell`; 7 unit tests).
+      CMA-ES — implemented in `tpt-opt-core::cmaes` (`cma_es`, Hansen 2016
+      (μ/μ_w, λ) with cumulative step-size control and rank-one/rank-μ
+      updates; seeded SplitMix64 + Box-Muller sampler; cyclic Jacobi
+      eigendecomposition; 5 tests incl. 1e6-condition ellipsoid and seed
+      reproducibility)
+- [x] Bayesian optimisation (GP surrogate) — new crate `tpt-opt-bayes`: Matérn
+      5/2 GP, marginal-likelihood hyperparameter fit via the core L-BFGS,
+      expected improvement, seeded; 6 tests (incl. Branin to < 0.5 in 60 evals).
+- [x] L-BFGS unconstrained method — `tpt-opt-core::unconstrained::lbfgs`
+      (two-loop recursion, Armijo backtracking; 40-dim ill-conditioned quadratic
+      and Rosenbrock tests).
+- [x] Trust-region NLP for general constraints — `tpt-opt-core::tr_sqp`
+      (`trust_region_sqp`, `nlp` feature): ℓ₁-merit trust-region SQP, damped
+      BFGS on the Lagrangian, interior-point QP per step; 4 tests.
+- [x] Global NLP via spatial branch-and-bound — `tpt-opt-minlp::spatial`
+      (`spatial_branch_and_bound`): **restricted to bilinear programs over finite
+      boxes** with McCormick LP relaxations; best-first with bisection branching.
+      Not a general global NLP solver. 5 tests incl. grid-search agreement.
+- [ ] Revisit the Phase 11 deferred `tpt-opt-robust` SOCP reformulation now that
+      `tpt-opt-conic` exists — **open**: `tpt-opt-conic` now has a barrier SOCP,
+      so this is unblocked; not yet done (not in the approved list).
+
+Known issue found while verifying (not fixed here): `tpt-opt-nls` did not compile
+on HEAD (`lbfgs.rs` assigned an immutable `alpha` twice). The compile error is
+fixed; `lbfgs::tests::rosenbrock_converges_with_reverse_gradient` and the
+`lbfgs` doctest still fail (the line search stops with `CostTolerance` at
+gradient norm ≈ 0.026). That is an algorithmic issue in the nls L-BFGS
+line-search/termination logic and is open.

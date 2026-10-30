@@ -24,8 +24,77 @@
 
 use std::vec::Vec;
 
+use tpt_opt_conic::{ConeProgram, SocRow};
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
 use tpt_opt_core::VarBound;
+
+/// A row whose coefficients are `ā + L u` with `u` in the Euclidean unit ball
+/// and `Σ = L Lᵀ`, protected at level `κ` (see
+/// [`ellipsoid_socp_reformulation`]).
+#[derive(Debug, Clone)]
+pub struct EllipsoidRow {
+    /// Nominal coefficients `ā` (length `n`).
+    pub nominal: Vec<f64>,
+    /// Factor `L` stored as `n` rows of `m` entries: `factor[j][k] = L_{jk}`.
+    pub factor: Vec<Vec<f64>>,
+    /// Right-hand side `b`.
+    pub rhs: f64,
+}
+
+/// Exact second-order-cone reformulation of the ellipsoidal robust LP.
+///
+/// For a row `(ā + L u)·x ≤ b` with `‖u‖₂ ≤ κ`, the worst case over the
+/// ellipsoid is `ā·x + κ‖Lᵀx‖₂`, so the robust counterpart is
+///
+/// ```text
+/// ‖Lᵀ x‖₂ ≤ (b − ā·x) / κ
+/// ```
+///
+/// which is a second-order cone. The result is a [`ConeProgram`] to be solved
+/// with [`tpt_opt_conic::solve_socp`]. It is less conservative than
+/// [`ellipsoid_reformulation`], which bounds `‖Lᵀx‖₂` by `Σ_j ‖L_{·j}‖₂ x_j`.
+///
+/// `kappa` must be positive and finite. Dimensions are checked with `assert!`,
+/// as in the other reformulations in this module.
+pub fn ellipsoid_socp_reformulation(
+    cost: Vec<f64>,
+    bounds: Vec<(f64, f64)>,
+    rows: Vec<EllipsoidRow>,
+    kappa: f64,
+) -> ConeProgram {
+    assert!(kappa > 0.0 && kappa.is_finite(), "kappa must be positive and finite");
+    let n = bounds.len();
+    assert_eq!(cost.len(), n, "one cost per variable");
+    let soc_rows = rows
+        .iter()
+        .map(|row| {
+            assert_eq!(row.nominal.len(), n, "nominal length must match variables");
+            assert_eq!(row.factor.len(), n, "factor needs one row per variable");
+            let m = row.factor.first().map_or(0, Vec::len);
+            assert!(row.factor.iter().all(|r| r.len() == m), "ragged factor");
+            // Affine map rows: r(x) = (b − ā·x)/κ, then q_k(x) = Σ_j L_jk x_j.
+            let mut q_mat = Vec::with_capacity(m + 1);
+            let mut q_rhs = Vec::with_capacity(m + 1);
+            q_mat.push(row.nominal.iter().map(|a| -a / kappa).collect());
+            q_rhs.push(row.rhs / kappa);
+            for k in 0..m {
+                q_mat.push(row.factor.iter().map(|l_row| l_row[k]).collect());
+                q_rhs.push(0.0);
+            }
+            SocRow { q_mat, q_rhs }
+        })
+        .collect();
+    ConeProgram {
+        n,
+        c: cost,
+        sense: Sense::Minimize,
+        bounds,
+        eq_a: Vec::new(),
+        eq_b: Vec::new(),
+        soc_rows,
+        sdp_blocks: Vec::new(),
+    }
+}
 
 /// One uncertain row: nominal coefficients `nominal ± deviation` per entry.
 #[derive(Debug, Clone)]

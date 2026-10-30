@@ -248,3 +248,77 @@ fn wasserstein_linear_worst_case_adds_lipschitz_margin() {
     let wc = worst_case_linear_wasserstein(&[vec![0.0], vec![2.0]], &[1.0], 0.0, 1.0);
     assert!((wc - 2.0).abs() < 1e-9, "mean 1 + θ·‖g‖ = 2, got {wc}");
 }
+
+/// Isotropic ellipsoid (L = I) on `x₁ + x₂ + κ‖x‖₂ ≤ b` with `max x₁ + x₂`.
+/// By symmetry x₁ = x₂ = t with t = b / (2 + κ√2), so the optimum is 2t.
+#[test]
+fn ellipsoid_socp_matches_closed_form_isotropic() {
+    use tpt_opt_conic::{solve_socp, ConicStatus};
+    use tpt_opt_robust::robust::{ellipsoid_socp_reformulation, EllipsoidRow};
+
+    let kappa = 1.0;
+    let b = 10.0;
+    let row = EllipsoidRow {
+        nominal: vec![1.0, 1.0],
+        factor: vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+        rhs: b,
+    };
+    let prog = ellipsoid_socp_reformulation(
+        vec![-1.0, -1.0],
+        vec![(0.0, 10.0), (0.0, 10.0)],
+        vec![row],
+        kappa,
+    );
+    let sol = solve_socp(&prog, 1e-8, 100);
+    assert_eq!(sol.status, ConicStatus::Optimal, "{sol:?}");
+    let t = b / (2.0 + kappa * 2.0_f64.sqrt());
+    assert!((sol.objective + 2.0 * t).abs() < 1e-5, "got {}, expected {}", sol.objective, -2.0 * t);
+}
+
+/// The SOCP counterpart is strictly less conservative than the column-norm LP
+/// on the same isotropic data: the LP gives `(1 + κ)(x₁ + x₂) ≤ b`, optimum −5.
+#[test]
+fn ellipsoid_socp_is_less_conservative_than_column_norm_lp() {
+    use tpt_opt_conic::solve_socp;
+    use tpt_opt_robust::robust::{ellipsoid_socp_reformulation, EllipsoidRow};
+
+    let row = EllipsoidRow {
+        nominal: vec![1.0, 1.0],
+        factor: vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+        rhs: 10.0,
+    };
+    let socp = ellipsoid_socp_reformulation(
+        vec![-1.0, -1.0],
+        vec![(0.0, 10.0), (0.0, 10.0)],
+        vec![row.clone()],
+        1.0,
+    );
+    let socp_obj = solve_socp(&socp, 1e-8, 100).objective;
+
+    let lp = ellipsoid_reformulation(
+        vec![-1.0, -1.0],
+        vec![(0.0, 10.0), (0.0, 10.0)],
+        vec![UncertainRow { nominal: row.nominal.clone(), deviation: vec![0.0; 2], rhs: 10.0 }],
+        vec![vec![1.0, 1.0]],
+        1.0,
+    );
+    let lp_obj = MilpSolver::new().solve(&lp).unwrap().objective_value;
+
+    assert!((lp_obj + 5.0).abs() < 1e-6, "LP optimum {lp_obj}");
+    assert!(socp_obj < lp_obj - 0.5, "SOCP {socp_obj} should beat LP {lp_obj}");
+}
+
+/// Diagonal Σ = σ² reduces to the single-row closed form used above.
+#[test]
+fn ellipsoid_socp_diagonal_matches_scalar_formula() {
+    use tpt_opt_conic::{solve_socp, ConicStatus};
+    use tpt_opt_robust::robust::{ellipsoid_socp_reformulation, EllipsoidRow};
+
+    let kappa = normal_quantile(0.95);
+    let row = EllipsoidRow { nominal: vec![1.0], factor: vec![vec![0.2]], rhs: 1.0 };
+    let prog = ellipsoid_socp_reformulation(vec![-1.0], vec![(0.0, 10.0)], vec![row], kappa);
+    let sol = solve_socp(&prog, 1e-8, 100);
+    assert_eq!(sol.status, ConicStatus::Optimal, "{sol:?}");
+    let expected = 1.0 / (1.0 + kappa * 0.2);
+    assert!((sol.x[0] - expected).abs() < 1e-5, "{sol:?} vs {expected}");
+}

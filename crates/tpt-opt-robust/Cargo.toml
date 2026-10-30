@@ -16,6 +16,7 @@ documentation = "https://docs.rs/tpt-opt-robust"
 [dependencies]
     tpt-opt-core = { workspace = true }
     tpt-opt-milp = { workspace = true }
+    tpt-opt-conic = { workspace = true }
     tpt-math-optimize-convex = { workspace = true }
     tpt-math-prob = { workspace = true }
     tpt-math-linalg-sparse = { workspace = true }

@@ -64,7 +64,10 @@ pub mod value;
 
 pub use chance::{gaussian_chance_row, normal_quantile, scenario_chance_model};
 pub use dro::{worst_case_box_expectation, worst_case_linear_wasserstein, DroCuttingPlane};
-pub use robust::{budgeted_reformulation, ellipsoid_reformulation, UncertainRow};
+pub use robust::{
+    budgeted_reformulation, ellipsoid_reformulation, ellipsoid_socp_reformulation, EllipsoidRow,
+    UncertainRow,
+};
 pub use saa::{SaaConfig, SaaResult, SaaSolver};
 pub use scenario::{
     multi_stage_model, solve_two_stage, Scenario, StageData, TwoStageProblem, TwoStageSolution,

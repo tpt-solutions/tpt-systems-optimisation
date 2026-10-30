@@ -28,6 +28,17 @@ starting from the initial `0.1.0`.
 - Integration benchmark cross-validating OA vs. GBD (convex instance) and SQP
   B&B vs. integer enumeration (non-convex instance) (`tests/benchmark.rs`).
 
+### Added (Phase 13e)
+
+- `spatial` module: `spatial_branch_and_bound` for bilinear programs
+  `min cᵀx + Σ qₖ x_i x_j` over finite boxes with linear rows. Node bounds come
+  from the McCormick LP (`relax::mccormick_envelope`) solved by
+  `tpt_opt_milp::MilpSolver`; incumbents are exact objective values at feasible
+  LP points; branching bisects the wider factor of the most violated product.
+  Reports `Optimal`, `Infeasible`, `NodeLimit` or `Stalled` (a box too small to
+  bisect in floating point, where optimality cannot be certified). Restricted to
+  factorable bilinear terms; not a general global NLP solver.
+
 ### Not yet implemented (see `todo.md` Phase 4)
 - MINLPLib corpus runner (external fixtures pipeline).
 - Extended convex-relaxation coverage beyond bilinear/twice-differentiable

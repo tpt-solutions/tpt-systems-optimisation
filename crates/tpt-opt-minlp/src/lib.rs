@@ -52,6 +52,7 @@ pub mod logical;
 pub mod model;
 pub mod oa;
 pub mod relax;
+pub mod spatial;
 pub mod sqp;
 pub mod subproblem;
 

@@ -40,7 +40,7 @@ tpt-opt-systems = { path = "crates/tpt-opt-systems", version = "0.1.0" }
 # / `tpt-math-linalg-complex` shims are no longer required (the only shim helper
 # the solvers used, `is_integer`, is now defined locally in `tpt-opt-core`).
 tpt-math-linalg-sparse = "0.1.0"
-tpt-math-graph = "0.1.0"
+tpt-math-graph = "0.2.0"
 tpt-math-prob = "0.1.0"
 tpt-math-optimize-convex = "0.1.0"
 tpt-math-optimize-general = "0.2.0"

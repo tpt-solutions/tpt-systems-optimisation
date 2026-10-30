@@ -8,6 +8,17 @@ breaking changes between minor versions.
 ## [0.1.0] - Unreleased
 
 ### Added
+- `unconstrained` module (requires `alloc`): Nelder-Mead simplex (`nelder_mead`),
+  Powell's conjugate-direction method (`powell`), and limited-memory BFGS
+  (`lbfgs`), sharing `UncParams` / `UncResult`.
+- `cmaes` module (requires `alloc`): CMA-ES global-style minimiser (`cma_es`,
+  `CmaEsOptions`) with deterministic seeded sampling.
+- `qp` module (requires `alloc`): primal-dual interior-point solver for convex
+  quadratic programs (`solve_qp`, Mehrotra predictor-corrector) with a shared
+  dense LU helper (`lu_solve`).
+- `tr_sqp` module (requires `nlp`): trust-region SQP for general constrained
+  NLP (`trust_region_sqp`) using the ℓ₁ merit function, damped BFGS on the
+  Lagrangian, and the interior-point QP for each trust-region subproblem.
 - Canonical linear problem representation: `Model`, `Variable`, `Constraint`,
   `Objective`, `Sense`.
 - Variable bound kinds: `VarBound`, `VarType` (continuous / integer / binary /

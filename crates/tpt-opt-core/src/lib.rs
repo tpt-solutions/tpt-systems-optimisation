@@ -40,6 +40,8 @@ extern crate alloc;
 extern crate std;
 
 pub mod bounds;
+#[cfg(feature = "alloc")]
+pub mod cmaes;
 pub mod custom;
 pub mod error;
 #[cfg(feature = "alloc")]
@@ -49,8 +51,14 @@ pub mod model;
 #[cfg(feature = "nlp")]
 pub mod nlp;
 pub mod progress;
+#[cfg(feature = "alloc")]
+pub mod qp;
 pub mod solver;
 pub mod tolerance;
+#[cfg(feature = "nlp")]
+pub mod tr_sqp;
+#[cfg(feature = "alloc")]
+pub mod unconstrained;
 
 pub use bounds::{Bound, VarBound, VarType};
 pub use custom::CustomConstraint;

@@ -506,7 +506,7 @@ fn niche_fill(
             // Best unpicked candidate in this niche.
             let mut best: Option<(usize, f64)> = None;
             for (k, &(niche, dist)) in assoc.iter().enumerate() {
-                if niche == ni && !taken[k] && best.map_or(true, |(_, bd)| dist < bd) {
+                if niche == ni && !taken[k] && best.is_none_or(|(_, bd)| dist < bd) {
                     best = Some((k, dist));
                 }
             }

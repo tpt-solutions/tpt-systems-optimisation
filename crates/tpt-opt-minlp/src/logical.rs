@@ -66,7 +66,7 @@ fn ones(vars: &[usize]) -> (Vec<usize>, Vec<f64>) {
 #[cfg(test)]
 fn enumerate_binaries(k: usize) -> Vec<Vec<bool>> {
     let total = 1usize << k;
-    (0..total).map(|mask| (0..k).map(|b| mask >> b & 1 == 1).collect()).collect()
+    (0..total).map(|mask| (0..k).map(|b| (mask >> b) & 1 == 1).collect()).collect()
 }
 
 #[cfg(test)]

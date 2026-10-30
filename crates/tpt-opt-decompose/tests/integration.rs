@@ -284,7 +284,7 @@ fn branch_price_cutting_stock() {
                     let rc = 1.0
                         - pi.iter().zip(pat.iter()).map(|(&p, &c)| p * c as f64).sum::<f64>()
                         - sigma_k;
-                    if best.map_or(true, |(b, _)| rc < b) {
+                    if best.is_none_or(|(b, _)| rc < b) {
                         best = Some((rc, pi_idx));
                     }
                 }

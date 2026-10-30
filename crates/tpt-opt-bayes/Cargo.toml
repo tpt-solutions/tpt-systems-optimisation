@@ -1,0 +1,21 @@
+[package]
+name = "tpt-opt-bayes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Bayesian optimisation with a Gaussian-process surrogate and expected improvement."
+keywords = ["optimization", "bayesian", "gaussian-process", "surrogate"]
+categories = ["science::math", "algorithms"]
+documentation = "https://docs.rs/tpt-opt-bayes"
+
+[dependencies]
+    tpt-opt-core = { workspace = true }
+
+[features]
+default = ["std"]
+std = []

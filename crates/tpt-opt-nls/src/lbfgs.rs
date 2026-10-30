@@ -30,18 +30,22 @@
 use crate::reverse::Value;
 use crate::types::{NlsError, NlsStatus};
 
+/// Boxed scalar objective `x ↦ f(x)`.
+type ValueFn<'a> = Box<dyn Fn(&[f64]) -> f64 + 'a>;
+/// Boxed gradient `(x, g) ↦ g = ∇f(x)`.
+type GradFn<'a> = Box<dyn Fn(&[f64], &mut [f64]) + 'a>;
+/// Boxed reverse-mode objective over value nodes.
+type ReverseFn<'a> = Box<dyn Fn(&[Value], &mut Value) + 'a>;
+
 /// Objective for the gradient-based solvers.
 pub enum Objective<'a> {
     /// Value only — gradient by central finite differences.
-    FiniteDifference(Box<dyn Fn(&[f64]) -> f64 + 'a>),
+    FiniteDifference(ValueFn<'a>),
     /// Value plus user gradient.
-    Analytic(
-        Box<dyn Fn(&[f64]) -> f64 + 'a>,
-        Box<dyn Fn(&[f64], &mut [f64]) + 'a>,
-    ),
+    Analytic(ValueFn<'a>, GradFn<'a>),
     /// Objective written against reverse-mode values — exact gradient via
     /// one backward pass per evaluation.
-    Reverse(Box<dyn Fn(&[Value], &mut Value) + 'a>),
+    Reverse(ReverseFn<'a>),
 }
 
 impl<'a> Objective<'a> {
@@ -51,10 +55,7 @@ impl<'a> Objective<'a> {
     }
 
     /// Value + analytic gradient.
-    pub fn analytic(
-        f: impl Fn(&[f64]) -> f64 + 'a,
-        g: impl Fn(&[f64], &mut [f64]) + 'a,
-    ) -> Self {
+    pub fn analytic(f: impl Fn(&[f64]) -> f64 + 'a, g: impl Fn(&[f64], &mut [f64]) + 'a) -> Self {
         Objective::Analytic(Box::new(f), Box::new(g))
     }
 
@@ -215,8 +216,8 @@ pub fn lbfgs(
             let rho = rho_hist[i];
             let a = dot(&s_hist[i], &q) * rho;
             alphas[i] = a;
-            for k in 0..n {
-                q[k] -= a * y_hist[i][k];
+            for (qk, yk) in q.iter_mut().zip(&y_hist[i]) {
+                *qk -= a * yk;
             }
         }
         // Initial scaling γ = sᵀy / yᵀy from the newest pair.
@@ -228,17 +229,14 @@ pub fn lbfgs(
                 *v *= gamma;
             }
         }
-        let mut direction: Vec<f64> = q.iter().map(|v| -*v).collect();
+        // Second loop (oldest → newest) on r = q: r ← r + s_i (α_i − β_i).
         for i in 0..s_hist.len() {
-            let rho = rho_hist[i];
-            let b = dot(&y_hist[i], &direction) * rho;
-            for k in 0..n {
-                direction[k] -= s_hist[i][k] * (alphas[i] - b);
+            let beta = rho_hist[i] * dot(&y_hist[i], &q);
+            for (qk, sk) in q.iter_mut().zip(&s_hist[i]) {
+                *qk += sk * (alphas[i] - beta);
             }
         }
-        for v in direction.iter_mut() {
-            *v = -*v;
-        }
+        let mut direction: Vec<f64> = q.iter().map(|v| -*v).collect();
         if dot(&g, &direction) >= 0.0 {
             // Lost descent (numerical): reset to steepest descent.
             for (v, gv) in direction.iter_mut().zip(g.iter()) {
@@ -485,8 +483,8 @@ mod tests {
         let f_ana = Objective::analytic(
             |x: &[f64]| x[0] * (-(x[0] * x[0])).exp() + (x[0] - 1.0).powi(4),
             |x, g| {
-                g[0] = (1.0 - 2.0 * x[0] * x[0]) * (-(x[0] * x[0])).exp()
-                    + 4.0 * (x[0] - 1.0).powi(3)
+                g[0] =
+                    (1.0 - 2.0 * x[0] * x[0]) * (-(x[0] * x[0])).exp() + 4.0 * (x[0] - 1.0).powi(3)
             },
         );
         for &x0 in &[-2.0, 0.5, 3.0] {
@@ -535,17 +533,13 @@ mod tests {
     fn small_memory_still_converges() {
         let f = Objective::reverse(|x, out| {
             let mut acc = Value::var(0.0);
-            for i in 0..x.len() {
-                acc = acc + (x[i].clone() - i as f64).powi(2);
+            for (i, xi) in x.iter().enumerate() {
+                acc = acc + (xi.clone() - i as f64).powi(2);
             }
             *out = acc;
         });
-        let res = lbfgs(
-            &f,
-            &vec![0.0; 60],
-            &LbfgsConfig::new().with_history(3).with_gtol(1e-10),
-        )
-        .unwrap();
+        let res = lbfgs(&f, &vec![0.0; 60], &LbfgsConfig::new().with_history(3).with_gtol(1e-10))
+            .unwrap();
         assert!(res.status.has_solution(), "{:?}", res);
         for (i, v) in res.x.iter().enumerate().take(10) {
             assert!((v - i as f64).abs() < 1e-4);

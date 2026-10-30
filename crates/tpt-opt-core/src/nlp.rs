@@ -328,6 +328,7 @@ pub fn solve_nlp<P: NlpProblem>(prob: &P, x0: &[f64], params: &NlpParams) -> Nlp
                     iters: 0,
                     converged: false,
                     termination: String::new(),
+                    residual: f64::INFINITY,
                 }
             });
         // The published conjugate-gradient solver is the primary inner solver.

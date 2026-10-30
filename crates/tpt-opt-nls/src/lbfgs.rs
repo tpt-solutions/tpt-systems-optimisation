@@ -263,8 +263,7 @@ pub fn lbfgs(
             let d = dot(sg, &direction);
             (v, d)
         };
-        let alpha;
-        match strong_wolfe(
+        let alpha = match strong_wolfe(
             &mut phi,
             f,
             dphi0,
@@ -274,26 +273,27 @@ pub fn lbfgs(
             &mut trial_x,
             &mut trial_g,
         ) {
-            Some(a) => alpha = a,
+            Some(a) => a,
             None => {
                 // Strong-Wolfe failed (collapsed bracket near a curved
                 // valley): fall back to plain Armijo backtracking from α=1,
                 // like scipy/L-BFGS-B, before giving up.
                 let mut alpha_fb = 1.0f64;
-                let mut accepted = false;
+                let mut accepted = None;
                 for _ in 0..cfg.max_line_search {
                     let (v, _) = phi(alpha_fb, &mut trial_x, &mut trial_g);
                     if v <= f + cfg.c1 * alpha_fb * dphi0 && v < f {
-                        alpha = alpha_fb;
-                        accepted = true;
+                        accepted = Some(alpha_fb);
                         break;
                     }
                     alpha_fb *= 0.5;
                 }
-                if !accepted {
-                    return Ok(done(NlsStatus::CostTolerance, x, f, gnorm, iterations, evals));
+                match accepted {
+                    Some(a) => a,
+                    None => {
+                        return Ok(done(NlsStatus::CostTolerance, x, f, gnorm, iterations, evals));
+                    }
                 }
-                alpha = alpha_fb;
             }
         };
 

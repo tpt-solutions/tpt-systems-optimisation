@@ -963,13 +963,27 @@ unless marked open. Each new module has unit tests; see the crate CHANGELOGs.
       (`spatial_branch_and_bound`): **restricted to bilinear programs over finite
       boxes** with McCormick LP relaxations; best-first with bisection branching.
       Not a general global NLP solver. 5 tests incl. grid-search agreement.
-- [ ] Revisit the Phase 11 deferred `tpt-opt-robust` SOCP reformulation now that
-      `tpt-opt-conic` exists — **open**: `tpt-opt-conic` now has a barrier SOCP,
-      so this is unblocked; not yet done (not in the approved list).
+- [x] Revisit the Phase 11 deferred `tpt-opt-robust` SOCP reformulation —
+      `tpt-opt-robust::robust::ellipsoid_socp_reformulation` (+ `EllipsoidRow`)
+      builds the exact robust counterpart `‖Lᵀx‖₂ ≤ (b − ā·x)/κ` as a
+      `ConeProgram` for `tpt-opt-conic::solve_socp`. Tests: isotropic closed
+      form, diagonal scalar formula, and strictly less conservative than the
+      column-norm LP. The old LP reformulation is kept.
 
-Known issue found while verifying (not fixed here): `tpt-opt-nls` did not compile
-on HEAD (`lbfgs.rs` assigned an immutable `alpha` twice). The compile error is
-fixed; `lbfgs::tests::rosenbrock_converges_with_reverse_gradient` and the
-`lbfgs` doctest still fail (the line search stops with `CostTolerance` at
-gradient norm ≈ 0.026). That is an algorithmic issue in the nls L-BFGS
-line-search/termination logic and is open.
+Fixed while verifying: `tpt-opt-nls` L-BFGS two-loop recursion had a sign error
+in its second loop (the search direction was wrong, so line searches collapsed
+and the Rosenbrock and doctest failures followed). Corrected; the
+`alpha` double-assignment compile error is also fixed. All nls tests pass, and
+clippy and fmt are clean for the crate.
+
+Resolved: the toolchain is now Rust 1.85 (`rust-toolchain.toml`, workspace
+`rust-version`, CI, README/CONTRIBUTING, and the crate template), which the
+0.2.0 `tpt-math-*` dependencies require. `tpt-opt-core::nlp` sets the new
+`residual` field of `Solution` (`f64::INFINITY` on its fallback path). Also
+fixed the lints that the 1.85 clippy reports across the workspace. The
+workspace test suite passes, clippy is clean with `-D warnings`, and fmt is
+clean.
+
+Umbrella (item 7): `tpt-opt-systems` has a `bayes` feature (in `all-solvers`)
+and re-exports for `solve_socp_ip`, `ellipsoid_socp_reformulation`, the spatial
+B&B API, and the Bayesian optimiser. The feature matrix is updated.

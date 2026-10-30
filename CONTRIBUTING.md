@@ -27,7 +27,7 @@ cargo xtask deny     # advisories / bans / licenses / sources
 ```
 
 CI runs these plus no_std cross-checks, feature-powerset sweeps of the
-umbrella crate, Tier 2 feature-combination builds, MSRV (Rust **1.84**) build,
+umbrella crate, Tier 2 feature-combination builds, MSRV (Rust **1.85**) build,
 informational semver checks, bench compile-smoke, and a non-blocking MILP
 performance report.
 

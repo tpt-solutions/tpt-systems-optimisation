@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/tpt-solutions/tpt-systems-optimisation/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-systems-optimisation/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT_OR_Apache--2.0-blue.svg)](./LICENSE-MIT)
-[![MSRV 1.84](https://img.shields.io/badge/MSRV-1.84-orange.svg)](./rust-toolchain.toml)
+[![MSRV 1.85](https://img.shields.io/badge/MSRV-1.85-orange.svg)](./rust-toolchain.toml)
 [![crates.io](https://img.shields.io/crates/v/tpt-opt-systems.svg)](https://crates.io/crates/tpt-opt-systems)
 [![docs.rs](https://docs.rs/tpt-opt-systems/badge.svg)](https://docs.rs/tpt-opt-systems)
 
@@ -169,7 +169,7 @@ cargo generate --git https://github.com/tpt-solutions/tpt-systems-optimisation -
 CI (`.github/workflows/ci.yml`) runs rustfmt, clippy `-D warnings`, tests +
 doctests via cargo-nextest, cargo-deny, a no_std cross-check for
 `tpt-opt-core`, a feature-powerset sweep of the umbrella (cargo-hack), the
-eight Tier 2 feature combinations, an MSRV build at Rust 1.84, informational
+eight Tier 2 feature combinations, an MSRV build at Rust 1.85, informational
 cargo-semver-checks, bench compile-smoke, and a non-blocking MILP performance
 report.
 

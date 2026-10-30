@@ -11,7 +11,7 @@ exclude = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.84"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
 homepage = "https://github.com/tpt-solutions/tpt-systems-optimisation"
@@ -32,6 +32,7 @@ tpt-opt-decompose = { path = "crates/tpt-opt-decompose", version = "0.1.0" }
 tpt-opt-conic = { path = "crates/tpt-opt-conic", version = "0.1.0" }
 tpt-opt-nls = { path = "crates/tpt-opt-nls", version = "0.1.0" }
 tpt-opt-factorgraph = { path = "crates/tpt-opt-factorgraph", version = "0.1.0" }
+tpt-opt-bayes = { path = "crates/tpt-opt-bayes", version = "0.1.0" }
 tpt-opt-systems = { path = "crates/tpt-opt-systems", version = "0.1.0" }
 
 # Published `tpt-math` crates (crates.io). The optimisation crates now depend

@@ -28,3 +28,8 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 3
+    # `dtolnay/rust-toolchain@<ver>` pins the Rust version being installed,
+    # not the action's release, so "bumping" it changes the toolchain. Keep
+    # it in step with rust-toolchain.toml and the MSRV badge by hand.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"

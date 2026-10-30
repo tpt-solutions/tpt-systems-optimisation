@@ -31,6 +31,7 @@ all-features = true
     tpt-opt-conic = { workspace = true, optional = true }
     tpt-opt-nls = { workspace = true, optional = true }
     tpt-opt-factorgraph = { workspace = true, optional = true }
+    tpt-opt-bayes = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -63,6 +64,8 @@ nls = ["dep:tpt-opt-nls"]
 # Factor-graph / SLAM least squares (pose graphs, bundle adjustment);
 # implies `nls` for the shared sparse/autodiff machinery.
 factorgraph = ["dep:tpt-opt-factorgraph", "nls"]
+# Bayesian optimisation (GP surrogate, expected improvement).
+bayes = ["dep:tpt-opt-bayes"]
 
 # Convenience meta-feature enabling every solver family at once.
 all-solvers = [
@@ -77,4 +80,5 @@ all-solvers = [
     "conic",
     "nls",
     "factorgraph",
+    "bayes",
 ]

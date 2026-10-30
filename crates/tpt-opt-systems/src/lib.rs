@@ -10,16 +10,17 @@
 //! |--------------|-----------------------|----------|
 //! | *(none)*     | `tpt-opt-core`        | Canonical [`Model`], `Solver` trait, bounds, tolerances, errors (always available) |
 //! | `milp`       | `tpt-opt-milp`        | Branch-and-bound/cut MILP: clique/cover/MIR/Gomory/lift-and-project cuts, heuristics, SOS/indicator/piecewise |
-//! | `minlp`      | `tpt-opt-minlp`       | Outer approximation, generalized Benders, SQP branch-and-bound, McCormick/αBB relaxations, logical constraints |
+//! | `minlp`      | `tpt-opt-minlp`       | Outer approximation, generalized Benders, SQP branch-and-bound, McCormick/αBB relaxations, logical constraints, spatial branch-and-bound for bilinear programs |
 //! | `network`    | `tpt-opt-network`     | Min-cost flow, network simplex, Hungarian assignment, DC/AC/SC-OPF, graph preprocessing, dynamic networks |
 //! | `cp`         | `tpt-opt-cp`          | Constraint programming: propagation, AllDifferent/Cumulative/Circuit/Regular/Element globals, CBJ search |
 //! | `heuristic`  | `tpt-opt-heuristic`   | Simulated annealing, genetic algorithms, tabu search, particle swarm |
 //! | `multi`      | `tpt-opt-multi`       | NSGA-II/III, Pareto fronts, hypervolume, knee points, linear scalarisation |
-//! | `robust`     | `tpt-opt-robust`      | Two-/multi-stage stochastic programming, SAA, VSS/EVPI, chance constraints, Bertsimas–Sim, DRO |
+//! | `robust`     | `tpt-opt-robust`      | Two-/multi-stage stochastic programming, SAA, VSS/EVPI, chance constraints, Bertsimas–Sim, DRO, exact ellipsoidal (SOCP) robust counterpart |
 //! | `decompose`  | `tpt-opt-decompose`   | Benders, Dantzig–Wolfe + column generation, branch-and-price, Lagrangian relaxation, structure detection |
-//! | `conic`      | `tpt-opt-conic`       | Second-order-cone (SOCP) and semidefinite (SDP) programming via Kelley cutting planes over the LP engine |
+//! | `conic`      | `tpt-opt-conic`       | Second-order-cone (SOCP) programming by an interior-point barrier method; semidefinite (SDP) programming via Kelley cutting planes over the LP engine |
 //! | `nls`        | `tpt-opt-nls`         | Nonlinear least squares: Gauss-Newton / Levenberg-Marquardt / dogleg, forward+reverse autodiff, robust M-estimator losses, box constraints, sparse LDLᵀ normal equations |
 //! | `factorgraph`| `tpt-opt-factorgraph` | Factor-graph / SLAM least squares: SO(2)/SE(2)/SO(3)/SE(3) manifolds, pose graphs, bundle adjustment, Schur complement, marginal covariances (implies `nls`) |
+//! | `bayes`      | `tpt-opt-bayes`       | Bayesian optimisation: Matérn 5/2 Gaussian-process surrogate, marginal-likelihood hyperparameters, expected improvement |
 //! | `all-solvers`| *(meta)*              | Enables every solver family above |
 //!
 //! With **no features** the crate exposes only the always-on core surface
@@ -117,6 +118,11 @@ pub use tpt_opt_milp::{
 #[cfg(feature = "minlp")]
 pub use tpt_opt_minlp as minlp;
 #[cfg(feature = "minlp")]
+pub use tpt_opt_minlp::spatial::{
+    spatial_branch_and_bound, BilinearProgram, Product as BilinearProduct, SpatialConfig,
+    SpatialResult, SpatialStatus,
+};
+#[cfg(feature = "minlp")]
 pub use tpt_opt_minlp::{MinlpModel, OaConfig, OaResult, OaStatus};
 
 #[cfg(feature = "network")]
@@ -166,10 +172,11 @@ pub use tpt_opt_multi::{
 pub use tpt_opt_robust as robust;
 #[cfg(feature = "robust")]
 pub use tpt_opt_robust::{
-    budgeted_reformulation, evpi, gaussian_chance_row, multi_stage_model, normal_quantile,
-    scenario_chance_model, solve_two_stage, vss, worst_case_box_expectation,
-    worst_case_linear_wasserstein, DroCuttingPlane, SaaConfig, SaaResult, SaaSolver, Scenario,
-    StageData, TwoStageProblem, TwoStageSolution, UncertainRow, ValueMetrics,
+    budgeted_reformulation, ellipsoid_socp_reformulation, evpi, gaussian_chance_row,
+    multi_stage_model, normal_quantile, scenario_chance_model, solve_two_stage, vss,
+    worst_case_box_expectation, worst_case_linear_wasserstein, DroCuttingPlane, EllipsoidRow,
+    SaaConfig, SaaResult, SaaSolver, Scenario, StageData, TwoStageProblem, TwoStageSolution,
+    UncertainRow, ValueMetrics,
 };
 
 /// Large-scale decomposition methods (feature `decompose`).
@@ -188,7 +195,8 @@ pub use tpt_opt_decompose::{
 pub use tpt_opt_conic as conic;
 #[cfg(feature = "conic")]
 pub use tpt_opt_conic::{
-    solve_conic, solve_socp, ConeProgram, ConeSolution, ConicStatus, SdpBlock, SocRow,
+    solve_conic, solve_socp, solve_socp_ip, ConeProgram, ConeSolution, ConicStatus, SdpBlock,
+    SocRow,
 };
 
 // ---- Nonlinear least squares ---------------------------------------------
@@ -209,3 +217,9 @@ pub use tpt_opt_factorgraph::{
     solve_schur as solve_factor_graph_schur, BetweenFactor, FactorGraph, FactorSolverConfig,
     Manifold, NoiseModel, PriorFactor, RangeBearingFactor, ReprojectionFactor, SolveOutcome,
 };
+
+// ---- Bayesian optimisation -----------------------------------------------
+#[cfg(feature = "bayes")]
+pub use tpt_opt_bayes as bayes;
+#[cfg(feature = "bayes")]
+pub use tpt_opt_bayes::{BayesOpt, BoConfig, BoError, BoResult};

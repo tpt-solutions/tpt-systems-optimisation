@@ -1,0 +1,20 @@
+{
+  "name": "tpt-systems-optimisation",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteEnv": {
+    "CARGO_TERM_COLOR": "always"
+  },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y cmake clang && rustup toolchain install 1.85 --component rustfmt --component clippy && rustup default 1.85 && cargo install just cargo-deny cargo-nextest --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}

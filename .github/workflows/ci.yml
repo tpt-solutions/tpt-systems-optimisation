@@ -102,6 +102,9 @@ jobs:
   semver-checks:
     name: cargo-semver-checks
     runs-on: ubuntu-latest
+    # check-release diffs against the crates.io baseline, which doesn't exist
+    # until the first publish. Flip to true once the crates are released.
+    if: false
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7

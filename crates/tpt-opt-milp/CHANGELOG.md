@@ -4,6 +4,25 @@ All notable changes to `tpt-opt-milp` are documented here. This crate follows
 the workspace convention of per-crate changelogs (Keep a Changelog format),
 starting from the initial `0.1.0` scaffold.
 
+## [Unreleased]
+
+### Added
+- `find_iis` (`iis.rs`): irreducible infeasible subsystem by the deletion
+  filter over linear constraints, with variable bounds and custom constraints
+  held fixed.
+- `presolve_model` (`presolve.rs`): empty-row removal, singleton-row bound
+  tightening (integer bounds rounded inward), duplicate-term merging, and a
+  `PresolveReport`. Variable indices are preserved.
+- `read_opb` and `write_opb` (`opb.rs`): pseudo-Boolean OPB reader and writer
+  for binary models with integer coefficients; the writer rejects anything OPB
+  cannot express.
+- `read_lp` now accepts objective constants, and `write_lp` writes them.
+
+### Changed
+- `read_lp` rejects trailing tokens in Bounds entries and constraint right-hand
+  sides instead of silently dropping them.
+- Removed the unused `sense` field from `LpState`.
+
 ## [0.1.0] - Unreleased
 
 ### Added

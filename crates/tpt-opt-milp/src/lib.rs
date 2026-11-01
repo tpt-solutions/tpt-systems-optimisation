@@ -26,10 +26,13 @@ pub mod format;
 pub mod gomory;
 #[cfg(feature = "highs")]
 pub mod highs_solver;
+pub mod iis;
 pub mod indicator;
 pub mod lp;
 pub mod milp;
+pub mod opb;
 pub mod piecewise;
+pub mod presolve;
 pub mod sos;
 
 pub use cuts::{add_clique_cuts, add_cover_cuts, add_mir_cuts};
@@ -39,8 +42,11 @@ pub use gomory::{
 };
 #[cfg(feature = "highs")]
 pub use highs_solver::HighsSolver;
+pub use iis::{find_iis, Iis};
 pub use indicator::{IndicatorConstraint, Trigger};
 pub use lp::{solve_lp, solve_lp_state, LpSolution, LpState, LpStatus};
 pub use milp::{BranchingRule, MilpSolver, NodeSelection};
+pub use opb::{read_opb, write_opb};
 pub use piecewise::PiecewiseObjective;
+pub use presolve::{presolve_model, PresolveReport};
 pub use sos::{SosSet, SosType};

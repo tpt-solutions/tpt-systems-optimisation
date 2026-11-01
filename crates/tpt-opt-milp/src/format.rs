@@ -19,8 +19,8 @@
 //! - Variable and row names are generated on export (`x1..xn`, `c1..cm`,
 //!   objective `OBJ`) because [`Model`] does not carry per-variable names;
 //!   imported names are likewise discarded.
-//! - The LP format has no objective-constant syntax, so constants are dropped
-//!   by [`write_lp`] (MPS round-trips them exactly).
+//! - Objective constants are written and read as a trailing `+ c` / `- c`
+//!   term on the objective line, so both formats round-trip them exactly.
 //! - Semi-continuous variables export to MPS via the `SC` bound card when the
 //!   lower limit is positive, and degrade to plain continuous variables in the
 //!   LP writer (the LP format has no semi-continuous syntax).
@@ -647,14 +647,25 @@ fn lp_terms(indices: &[usize], coeffs: &[f64]) -> String {
 
 /// Serialise `model` as CPLEX-style LP text.
 ///
-/// The objective constant cannot be represented in LP format and is dropped;
-/// use [`write_mps`] when the constant must survive. See the
+/// The objective constant is written as a trailing `+ c` / `- c` term. See the
 /// [module docs](self) for other fidelity notes.
 pub fn write_lp(model: &Model) -> String {
     let mut s = String::new();
     s.push_str("\\ Exported by tpt-opt-milp\n");
     s.push_str(if model.objective.sense == Sense::Maximize { "Maximize\n" } else { "Minimize\n" });
-    let _ = writeln!(s, " obj: {}", lp_terms(&model.objective.indices, &model.objective.coeffs));
+    let constant = model.objective.constant;
+    let constant_str = if constant == 0.0 {
+        String::new()
+    } else if constant < 0.0 {
+        format!(" - {}", fmt_num(-constant))
+    } else {
+        format!(" + {}", fmt_num(constant))
+    };
+    let _ = writeln!(
+        s,
+        " obj: {}{constant_str}",
+        lp_terms(&model.objective.indices, &model.objective.coeffs)
+    );
 
     s.push_str("Subject To\n");
     for (i, c) in model.constraints.iter().enumerate() {
@@ -880,6 +891,8 @@ struct LpBuilder {
     bounds: Vec<VarBound>,
     sense: Sense,
     obj: Expr,
+    /// Constant term accumulated from the objective line.
+    obj_constant: f64,
     /// Completed constraints: (optional name, expr, lower, upper).
     constraints: Vec<(Option<String>, Expr, f64, f64)>,
 }
@@ -892,6 +905,7 @@ impl LpBuilder {
             bounds: Vec::new(),
             sense: Sense::Minimize,
             obj: Expr::empty(),
+            obj_constant: 0.0,
             constraints: Vec::new(),
         }
     }
@@ -934,7 +948,7 @@ impl LpBuilder {
             sense: self.sense,
             indices: obj_indices,
             coeffs: obj_coeffs,
-            constant: 0.0,
+            constant: self.obj_constant,
         };
         for (_, expr, lower, upper) in &self.constraints {
             let mut indices = Vec::new();
@@ -1062,7 +1076,8 @@ fn parse_rest(
                     rest = &rest[2..];
                 }
             }
-            append_terms(&mut b.obj, rest, true)
+            b.obj_constant += append_terms(&mut b.obj, rest, true)?;
+            Ok(())
         }
         LpMode::Constraints => {
             let mut rest = toks;
@@ -1112,9 +1127,11 @@ fn parse_rest(
     }
 }
 
-/// Append `[sign] [coeff] name` terms to `expr`. When `objective` is set, a
-/// trailing bare number is rejected (no objective constants in LP format).
-fn append_terms(expr: &mut Expr, toks: &[Tok], objective: bool) -> Result<(), OptError> {
+/// Append `[sign] [coeff] name` terms to `expr` and return the constant they
+/// add. A bare number with no variable after it is an objective constant when
+/// `objective` is set, and an error inside a constraint.
+fn append_terms(expr: &mut Expr, toks: &[Tok], objective: bool) -> Result<f64, OptError> {
+    let mut constant = 0.0;
     let mut i = 0;
     while i < toks.len() {
         let mut sign = 1.0;
@@ -1141,17 +1158,16 @@ fn append_terms(expr: &mut Expr, toks: &[Tok], objective: bool) -> Result<(), Op
             }
         }
         if saw_coeff {
-            let msg = if objective {
-                "LP format: objective constants are not supported"
-            } else {
-                "LP format: coefficient without a variable name"
-            };
-            return err(msg);
+            if !objective {
+                return err("LP format: coefficient without a variable name");
+            }
+            constant += sign * coeff;
+            continue;
         }
         // Anything else (a relational operator or bound number) belongs to the caller.
         break;
     }
-    Ok(())
+    Ok(constant)
 }
 
 /// A completed constraint: optional row name, expression, lower/upper.
@@ -1197,40 +1213,24 @@ fn parse_constraint_tail(
     let after = &rest[split + 1..];
     let completed = match rel {
         Tok::Eq => {
-            let rhs = expect_number(after, "equality RHS")?;
+            let rhs = signed_number(after)?;
             Some((rhs, rhs))
         }
         Tok::Le => {
-            let hi = expect_number(after, "<= RHS")?;
+            let hi = signed_number(after)?;
             Some((forced_lower.unwrap_or(f64::NEG_INFINITY), hi))
         }
         Tok::Ge => {
             if forced_lower.is_some() {
                 return err("LP format: unexpected lower bound before '>=' row");
             }
-            let lo = expect_number(after, ">= RHS")?;
+            let lo = signed_number(after)?;
             Some((lo, f64::INFINITY))
         }
         _ => unreachable!("relational token checked above"),
     };
     let expr = std::mem::replace(pending, (None, Expr::empty())).1;
     Ok(completed.map(|(lower, upper)| (pending.0.take(), expr, lower, upper)))
-}
-
-fn expect_number(toks: &[Tok], what: &str) -> Result<f64, OptError> {
-    match toks.first() {
-        Some(Tok::Num(v)) => Ok(*v),
-        Some(Tok::Plus) => match toks.get(1) {
-            Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::INFINITY),
-            _ => err(format!("LP format: expected number for {what}")),
-        },
-        Some(Tok::Minus) => match toks.get(1) {
-            Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::NEG_INFINITY),
-            _ => err(format!("LP format: expected number for {what}")),
-        },
-        Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::INFINITY),
-        _ => err(format!("LP format: expected number for {what}")),
-    }
 }
 
 fn is_inf_name(n: &str) -> bool {
@@ -1255,36 +1255,31 @@ fn parse_bounds_line(b: &mut LpBuilder, toks: &[Tok]) -> Result<(), OptError> {
     }
 
     // Numeric-leading forms: `lo <= x [<= hi]` and reversed relations.
-    if let Some(Tok::Num(_)) = toks.first() {
-        if toks.len() >= 3 {
-            let lo = match toks[0] {
-                Tok::Num(v) => v,
-                _ => unreachable!("checked above"),
-            };
-            match &toks[1] {
-                Tok::Le => {
-                    if let Tok::Name(n) = &toks[2] {
-                        let j = b.get_or_create(n);
-                        let up = if toks.len() >= 5 && matches!(&toks[3], Tok::Le) {
-                            expect_number(&toks[4..], "upper bound")?
-                        } else {
-                            f64::INFINITY
-                        };
-                        b.bounds[j].bound = Bound::boxed(lo, up);
-                        return Ok(());
-                    }
-                }
-                Tok::Ge => {
-                    if let Tok::Name(n) = &toks[2] {
-                        let j = b.get_or_create(n);
-                        b.bounds[j].bound.upper = lo; // `hi >= x` means x <= hi
-                        return Ok(());
-                    }
-                }
-                _ => {}
+    if let Some(Tok::Num(lo)) = toks.first() {
+        let lo = *lo;
+        match &toks[1..] {
+            // `lo <= x`
+            [Tok::Le, Tok::Name(n)] => {
+                let j = b.get_or_create(n);
+                b.bounds[j].bound = Bound::boxed(lo, f64::INFINITY);
+                return Ok(());
             }
+            // `lo <= x <= hi`
+            [Tok::Le, Tok::Name(n), Tok::Le, upper @ ..] => {
+                let up = signed_number(upper)?;
+                let j = b.get_or_create(n);
+                b.bounds[j].bound = Bound::boxed(lo, up);
+                return Ok(());
+            }
+            // `hi >= x` means x <= hi
+            [Tok::Ge, Tok::Name(n)] => {
+                let j = b.get_or_create(n);
+                b.bounds[j].bound.upper = lo;
+                return Ok(());
+            }
+            _ => {}
         }
-        return err("LP format: malformed Bounds entry");
+        return err(format!("LP format: unsupported Bounds entry starting with {lo}"));
     }
 
     // Name-leading forms.
@@ -1297,6 +1292,9 @@ fn parse_bounds_line(b: &mut LpBuilder, toks: &[Tok]) -> Result<(), OptError> {
     }
     match &toks[1] {
         Tok::Name(kw) if kw.eq_ignore_ascii_case("free") => {
+            if toks.len() != 2 {
+                return err(format!("LP format: `{name} free` takes no further values"));
+            }
             let j = b.get_or_create(&name);
             b.bounds[j] = VarBound { kind: VarType::Continuous, bound: Bound::free() };
             Ok(())
@@ -1326,22 +1324,22 @@ fn parse_bounds_line(b: &mut LpBuilder, toks: &[Tok]) -> Result<(), OptError> {
     }
 }
 
-/// Parse a possibly-signed number or infinity from the front of `toks`.
+/// Parse a possibly-signed number or infinity that must make up all of `toks`.
+/// Trailing tokens are rejected rather than silently ignored.
 fn signed_number(toks: &[Tok]) -> Result<f64, OptError> {
-    match toks.first() {
-        Some(Tok::Num(v)) => Ok(*v),
-        Some(Tok::Plus) => match toks.get(1) {
-            Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::INFINITY),
-            _ => err("LP format: expected a number"),
-        },
-        Some(Tok::Minus) => match toks.get(1) {
-            Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::NEG_INFINITY),
-            Some(Tok::Num(v)) => Ok(-*v),
-            _ => err("LP format: expected a number"),
-        },
-        Some(Tok::Name(n)) if is_inf_name(n) => Ok(f64::INFINITY),
-        _ => err("LP format: expected a number"),
+    let (value, used) = match toks {
+        [Tok::Num(v), ..] => (*v, 1),
+        [Tok::Plus, Tok::Num(v), ..] => (*v, 2),
+        [Tok::Minus, Tok::Num(v), ..] => (-*v, 2),
+        [Tok::Plus, Tok::Name(n), ..] if is_inf_name(n) => (f64::INFINITY, 2),
+        [Tok::Minus, Tok::Name(n), ..] if is_inf_name(n) => (f64::NEG_INFINITY, 2),
+        [Tok::Name(n), ..] if is_inf_name(n) => (f64::INFINITY, 1),
+        _ => return err("LP format: expected a number"),
+    };
+    if used != toks.len() {
+        return err("LP format: unexpected tokens after a bound value");
     }
+    Ok(value)
 }
 
 // ---------------------------------------------------------------------------
@@ -1638,15 +1636,65 @@ End
     }
 
     #[test]
-    fn lp_rejects_objective_constant() {
+    fn lp_objective_constant_is_read_and_round_trips() {
         let text = "\
 Minimize
- obj: 2 x + 5
+ obj: 2 x + 5 - 1
 Subject To
  r: x >= 1
 End
 ";
-        assert!(read_lp(text).is_err());
+        let m = read_lp(text).unwrap();
+        assert_eq!(m.objective.constant, 4.0);
+        let sol = crate::MilpSolver::new().solve(&m).unwrap();
+        assert!((sol.objective_value - 6.0).abs() < 1e-9, "obj {}", sol.objective_value);
+
+        let back = read_lp(&write_lp(&m)).unwrap();
+        assert_eq!(back.objective.constant, 4.0);
+    }
+
+    #[test]
+    fn lp_negative_objective_constant_round_trips() {
+        let mut m = knapsack();
+        m.objective.constant = -2.5;
+        let back = read_lp(&write_lp(&m)).unwrap();
+        assert_eq!(back.objective.constant, -2.5);
+    }
+
+    #[test]
+    fn lp_rejects_unknown_or_trailing_bounds_entries() {
+        let trailing = "\
+Minimize
+ obj: x
+Subject To
+ r: x >= 1
+Bounds
+ x <= 5 7
+End
+";
+        assert!(read_lp(trailing).is_err());
+
+        let bad_range = "\
+Minimize
+ obj: x
+Subject To
+ r: x >= 1
+Bounds
+ 0 <= x 5
+End
+";
+        assert!(read_lp(bad_range).is_err());
+
+        let free_with_value = "\
+Minimize
+ obj: x
+Subject To
+ r: x >= 1
+Bounds
+ x free 3
+End
+";
+        assert!(read_lp(free_with_value).is_err());
     }
 
     // ----- Cross-format ----------------------------------------------------

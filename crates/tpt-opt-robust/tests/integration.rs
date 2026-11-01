@@ -308,6 +308,23 @@ fn ellipsoid_socp_is_less_conservative_than_column_norm_lp() {
     assert!(socp_obj < lp_obj - 0.5, "SOCP {socp_obj} should beat LP {lp_obj}");
 }
 
+/// One Gaussian chance constraint `P(ξ·x ≤ 10) ≥ 0.95` with `ξ ~ N(1, 4)`
+/// reads `(μ + z·σ)·x ≤ b` exactly, so `max x` gives
+/// `x* = b / (1 + 2·z)` with `z = Φ⁻¹(0.95)`.
+#[test]
+fn gaussian_chance_socp_matches_closed_form_scalar() {
+    use tpt_opt_conic::{solve_socp, ConicStatus};
+    use tpt_opt_robust::chance::{gaussian_chance_socp, normal_quantile};
+
+    let z = normal_quantile(0.95);
+    let prog =
+        gaussian_chance_socp(vec![-1.0], vec![(0.0, 10.0)], vec![1.0], vec![vec![2.0]], 10.0, 0.05);
+    let sol = solve_socp(&prog, 1e-8, 100);
+    assert_eq!(sol.status, ConicStatus::Optimal, "{sol:?}");
+    let expected = 10.0 / (1.0 + 2.0 * z);
+    assert!((sol.x[0] - expected).abs() < 1e-5, "x {} vs {expected}", sol.x[0]);
+}
+
 /// Diagonal Σ = σ² reduces to the single-row closed form used above.
 #[test]
 fn ellipsoid_socp_diagonal_matches_scalar_formula() {

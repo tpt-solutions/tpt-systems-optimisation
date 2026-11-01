@@ -62,7 +62,9 @@ pub mod saa;
 pub mod scenario;
 pub mod value;
 
-pub use chance::{gaussian_chance_row, normal_quantile, scenario_chance_model};
+pub use chance::{
+    gaussian_chance_row, gaussian_chance_socp, normal_quantile, scenario_chance_model,
+};
 pub use dro::{worst_case_box_expectation, worst_case_linear_wasserstein, DroCuttingPlane};
 pub use robust::{
     budgeted_reformulation, ellipsoid_reformulation, ellipsoid_socp_reformulation, EllipsoidRow,

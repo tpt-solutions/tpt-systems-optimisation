@@ -15,13 +15,17 @@
 //!   column-norm bound `√(xᵀΣx) ≤ Σ_j ‖L_{·j}‖₂·|x_j|` (with `L` the
 //!   Cholesky factor of `Σ`), which is tight for diagonal `Σ` up to sign
 //!   splitting and always yields a *feasible* (slightly conservative)
-//!   linear constraint.
+//!   linear constraint. The exact form is also available as a
+//!   second-order-cone program via [`gaussian_chance_socp`].
 
 use std::vec::Vec;
 
+use tpt_opt_conic::ConeProgram;
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
 use tpt_opt_core::VarBound;
 use tpt_opt_milp::MilpSolver;
+
+use crate::robust::{ellipsoid_socp_reformulation, EllipsoidRow};
 
 /// Inverse standard-normal CDF (Acklam's rational approximation, |err| <
 /// 1.15e-9 over the open interval).
@@ -111,6 +115,30 @@ pub fn gaussian_chance_row(mu: Vec<f64>, chol_col_norms: Vec<f64>, b: f64, eps: 
         mu,
         rhs: b,
     }
+}
+
+/// Exact SOCP deterministic equivalent of one Gaussian chance constraint.
+///
+/// For `a ~ N(μ, Σ)` with `Σ = L Lᵀ` (`factor` holds `L` as `n` rows of `n`
+/// entries, `factor[j][k] = L_{jk}`), the requirement `P(a·x ≤ b) ≥ 1 − ε` is
+/// exactly `μ·x + Φ⁻¹(1−ε)·‖Lᵀx‖₂ ≤ b`, because `√(xᵀΣx) = ‖Lᵀx‖₂`. That is the
+/// ellipsoidal robust counterpart with κ = Φ⁻¹(1−ε), so it is returned as a
+/// [`ConeProgram`] for [`tpt_opt_conic::solve_socp`] rather than the
+/// column-norm LP linearisation of [`gaussian_chance_row`].
+///
+/// `eps` must lie in `(0, 0.5)` so that `Φ⁻¹(1−ε) > 0`.
+pub fn gaussian_chance_socp(
+    cost: Vec<f64>,
+    bounds: Vec<(f64, f64)>,
+    mu: Vec<f64>,
+    factor: Vec<Vec<f64>>,
+    b: f64,
+    eps: f64,
+) -> ConeProgram {
+    assert!(eps > 0.0 && eps < 0.5, "violation probability eps must be in (0, 0.5)");
+    let kappa = normal_quantile(1.0 - eps);
+    let row = EllipsoidRow { nominal: mu, factor, rhs: b };
+    ellipsoid_socp_reformulation(cost, bounds, vec![row], kappa)
 }
 
 /// Scenario (binary-indicator) approximation of a chance-constrained LP.

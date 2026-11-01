@@ -331,7 +331,8 @@ fn ignore_fixtures_dir() {
     const MARKER: &str = "/tests/fixtures/";
     let path = std::path::Path::new(".gitignore");
     let existing = fs::read_to_string(path).unwrap_or_default();
-    if existing.lines().any(|l| l.trim() == MARKER) {
+    // The written line carries a trailing comment, so match the prefix.
+    if existing.lines().any(|l| l.trim_start().starts_with(MARKER)) {
         return;
     }
     let mut out = existing.clone();

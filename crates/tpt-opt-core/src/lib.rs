@@ -45,6 +45,8 @@ pub mod cmaes;
 pub mod custom;
 pub mod error;
 #[cfg(feature = "alloc")]
+pub mod expr;
+#[cfg(feature = "alloc")]
 pub mod graph;
 pub mod matrix;
 pub mod model;

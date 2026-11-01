@@ -212,7 +212,7 @@ pub fn dc_opf(net: &Network) -> DcOpfResult {
             flows: vec![0.0f64; l],
             angles: vec![0.0f64; n],
             total_cost: f64::INFINITY,
-            status: SolverStatus::Error,
+            status: failure_status(&solver),
         },
     }
 }
@@ -427,4 +427,154 @@ pub fn sc_opf(net: &Network) -> ScOpfResult {
     }
 
     ScOpfResult { base, secure, contingency_status, worst_loading: worst }
+}
+
+/// Result of the co-optimised, preventive SC-OPF.
+#[derive(Debug, Clone)]
+pub struct ScOpfCoResult {
+    /// One dispatch shared by the base case and every N-1 contingency (MW per generator).
+    pub dispatch: Vec<f64>,
+    /// Base-case line flows (MW).
+    pub base_flows: Vec<f64>,
+    /// `contingency_flows[k][j]` is line `j`'s flow with line `k` out of service.
+    /// The outaged line itself reads `0.0`.
+    pub contingency_flows: Vec<Vec<f64>>,
+    /// Generation cost of the shared dispatch (linear cost plus constant, as in [`dc_opf`]).
+    pub total_cost: f64,
+    /// Terminal status. [`SolverStatus::Infeasible`] means no single dispatch is
+    /// secure against every single-line outage.
+    pub status: SolverStatus,
+}
+
+/// Co-optimised preventive SC-OPF as one LP.
+///
+/// One dispatch is chosen for the whole system. Each scenario (the intact
+/// network, and one per outaged line) gets its own bus angles and line flows,
+/// and all of them must satisfy the line limits and the power balance under that
+/// same dispatch. The LP minimises the generation cost, so the result is the
+/// cheapest dispatch that is N-1 secure without corrective action.
+///
+/// This is the joint formulation that [`sc_opf`] approximates. With no
+/// contingency binding, its cost equals the base-case [`dc_opf`] cost.
+pub fn sc_opf_preventive(net: &Network) -> ScOpfCoResult {
+    let n = net.buses.len();
+    let g = net.generators.len();
+    let l = net.lines.len();
+    let slack = net.buses.iter().position(|b| b.is_slack).unwrap_or(0);
+
+    let mut model = Model::new(0);
+    let pg_idx: Vec<usize> = net
+        .generators
+        .iter()
+        .map(|gen| model.add_variable(VarBound::continuous(gen.p_min, gen.p_max)))
+        .collect();
+    let constant: f64 = net.generators.iter().map(|gen| gen.c0).sum();
+    model.set_objective(Objective {
+        sense: Sense::Minimize,
+        indices: pg_idx.clone(),
+        coeffs: net.generators.iter().map(|gen| gen.c1).collect(),
+        constant,
+    });
+
+    // Scenario 0 is the intact network; scenario k + 1 has line k out.
+    let mut flow_idx: Vec<Vec<usize>> = Vec::with_capacity(l + 1);
+    for scenario in 0..=l {
+        let outaged = scenario.checked_sub(1);
+        let theta_idx: Vec<usize> = (0..n)
+            .map(|i| {
+                if i == slack {
+                    usize::MAX
+                } else {
+                    model.add_variable(VarBound::continuous(f64::NEG_INFINITY, f64::INFINITY))
+                }
+            })
+            .collect();
+        let f_idx: Vec<usize> = net
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(k, line)| {
+                let bound = if Some(k) == outaged {
+                    VarBound::continuous(0.0, 0.0)
+                } else {
+                    VarBound::continuous(-line.capacity, line.capacity)
+                };
+                model.add_variable(bound)
+            })
+            .collect();
+
+        for (k, line) in net.lines.iter().enumerate() {
+            if Some(k) == outaged {
+                continue;
+            }
+            let mut indices = Vec::new();
+            let mut coeffs = Vec::new();
+            if theta_idx[line.from] != usize::MAX {
+                indices.push(theta_idx[line.from]);
+                coeffs.push(1.0);
+            }
+            if theta_idx[line.to] != usize::MAX {
+                indices.push(theta_idx[line.to]);
+                coeffs.push(-1.0);
+            }
+            indices.push(f_idx[k]);
+            coeffs.push(-line.reactance);
+            model.add_constraint(Constraint::equality(indices, coeffs, 0.0));
+        }
+
+        for i in 0..n {
+            let mut indices = Vec::new();
+            let mut coeffs = Vec::new();
+            for (gi, gen) in net.generators.iter().enumerate() {
+                if gen.bus == i {
+                    indices.push(pg_idx[gi]);
+                    coeffs.push(1.0);
+                }
+            }
+            for (k, line) in net.lines.iter().enumerate() {
+                if line.from == i {
+                    indices.push(f_idx[k]);
+                    coeffs.push(-1.0);
+                } else if line.to == i {
+                    indices.push(f_idx[k]);
+                    coeffs.push(1.0);
+                }
+            }
+            model.add_constraint(Constraint::equality(indices, coeffs, net.buses[i].demand_p));
+        }
+        flow_idx.push(f_idx);
+    }
+
+    let empty = |status| ScOpfCoResult {
+        dispatch: vec![0.0; g],
+        base_flows: vec![0.0; l],
+        contingency_flows: vec![vec![0.0; l]; l],
+        total_cost: f64::INFINITY,
+        status,
+    };
+    let mut solver = LpSolver::new();
+    let sol = match solver.solve(&model) {
+        Ok(s) if s.status == SolverStatus::Optimal => s,
+        Ok(s) => return empty(s.status),
+        Err(_) => return empty(failure_status(&solver)),
+    };
+
+    let flows_of = |f: &[usize]| f.iter().map(|&idx| sol.primal[idx]).collect::<Vec<f64>>();
+    ScOpfCoResult {
+        dispatch: pg_idx.iter().map(|&idx| sol.primal[idx]).collect(),
+        base_flows: flows_of(&flow_idx[0]),
+        contingency_flows: flow_idx[1..].iter().map(|f| flows_of(f)).collect(),
+        total_cost: sol.objective_value,
+        status: sol.status,
+    }
+}
+
+/// Status to report when the LP solver returned an error: the solver's own
+/// verdict (for example [`SolverStatus::Infeasible`]), or `Error` when it
+/// recorded none.
+fn failure_status(solver: &LpSolver) -> SolverStatus {
+    match solver.status() {
+        SolverStatus::Optimal => SolverStatus::Error,
+        s => s,
+    }
 }

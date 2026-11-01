@@ -62,7 +62,8 @@ pub use graph_preprocess::{
 };
 pub use min_cost_flow::{min_cost_flow, network_simplex, MinCostFlowResult, NetworkFlow};
 pub use opf::{
-    ac_opf, dc_opf, sc_opf, AcOpfResult, Bus, DcOpfResult, Generator, Line, Network, ScOpfResult,
+    ac_opf, dc_opf, sc_opf, sc_opf_preventive, AcOpfResult, Bus, DcOpfResult, Generator, Line,
+    Network, ScOpfCoResult, ScOpfResult,
 };
 
 pub use lp::LpSolver;

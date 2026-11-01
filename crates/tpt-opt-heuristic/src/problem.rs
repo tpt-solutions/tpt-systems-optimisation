@@ -6,7 +6,7 @@
 //! implementations are provided: [`ObjectiveFn`] (from a closure) and
 //! [`ModelObjective`] (adapts a `tpt-opt-core` [`Model`]).
 
-use tpt_opt_core::{Model, Sense, VarType};
+use tpt_opt_core::{Model, Sense};
 
 use crate::rng::{Rng, RngExt};
 
@@ -163,10 +163,4 @@ pub(crate) fn random_point(objective: &dyn Objective, rng: &mut dyn Rng) -> Vec<
             }
         })
         .collect()
-}
-
-/// Classify a variable's kind (used by adapters/diagnostics).
-#[allow(dead_code)]
-pub(crate) fn var_kind(model: &Model, i: usize) -> VarType {
-    model.variables[i].kind
 }

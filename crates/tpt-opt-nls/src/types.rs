@@ -7,6 +7,8 @@
 
 use tpt_opt_core::{SolverStatus, Tolerances};
 
+use crate::loss::Loss;
+
 /// Outcome of a least-squares solve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NlsStatus {
@@ -194,19 +196,34 @@ pub struct NlsResult {
 
 impl NlsResult {
     /// Gaussian covariance estimate `σ̂² (JᵀJ)⁻¹` with
-    /// `σ̂² = 2·cost / max(1, m − n)` — undefined (returns `None`) without a
-    /// stored Jacobian, for non-L2 losses (the IRLS weighting makes the
-    /// Gaussian reading approximate; the plain `(JᵀJ)⁻¹` is still returned
-    /// in that case, scaled by 1 rather than `σ̂²`), or on a singular
-    /// normal matrix.
+    /// `σ̂² = 2·cost / max(1, m − n)` — the plain least-squares estimate.
+    ///
+    /// Returns `None` without a stored Jacobian or on a singular normal
+    /// matrix. For a robust fit use [`Self::covariance_with_loss`] with the
+    /// same loss the solve used; this method ignores it.
     pub fn covariance(&self) -> Option<Vec<f64>> {
+        self.covariance_with_loss(Loss::L2)
+    }
+
+    /// Covariance estimate `s² (Jᵀ W J)⁻¹` for the loss `loss` that the solve
+    /// used, with IRLS weights `W = diag(w(rᵢ))` and the weighted scale
+    /// `s² = Σ wᵢ rᵢ² / max(1, m − n)`.
+    ///
+    /// For [`Loss::L2`] this reduces exactly to [`Self::covariance`]. For a
+    /// robust loss, down-weighted outliers stop inflating the scale estimate,
+    /// so the result is an approximation of the M-estimator's covariance, not
+    /// an exact sandwich estimate. Returns `None` without a stored Jacobian or
+    /// on a singular normal matrix.
+    pub fn covariance_with_loss(&self, loss: Loss) -> Option<Vec<f64>> {
         let j = self.jacobian.as_ref()?;
         let n = self.x.len();
         let m = self.residual.len();
-        let h = crate::dense::normal_equations(j, m, n);
+        let w: Vec<f64> = self.residual.iter().map(|&ri| loss.weight(ri)).collect();
+        let h = crate::solvers::weighted_normal_equations(j, &w, m, n);
         let inv = crate::dense::spd_inverse(&h, n)?;
         let dof = (m.saturating_sub(n)).max(1) as f64;
-        let sigma2 = 2.0 * self.cost / dof;
+        let weighted_ss: f64 = w.iter().zip(&self.residual).map(|(&wi, &ri)| wi * ri * ri).sum();
+        let sigma2 = weighted_ss / dof;
         Some(inv.into_iter().map(|v| v * sigma2).collect())
     }
 
@@ -238,5 +255,37 @@ mod tests {
         assert_eq!(c.ftol, t.optimality_gap);
         assert_eq!(c.gtol, t.feasibility);
         assert_eq!(c.xtol, t.pivoting);
+    }
+
+    fn line_fit_result(residual: Vec<f64>) -> NlsResult {
+        let m = residual.len();
+        NlsResult {
+            status: NlsStatus::Converged,
+            x: vec![1.0],
+            residual,
+            cost: 0.0,
+            iterations: 1,
+            evaluations: 1,
+            gradient_norm: 0.0,
+            termination: "test",
+            jacobian: Some(vec![1.0; m]),
+        }
+    }
+
+    #[test]
+    fn covariance_with_l2_matches_plain_covariance() {
+        let res = line_fit_result(vec![0.1, -0.2, 0.05, 0.3]);
+        let plain = res.covariance().unwrap();
+        let l2 = res.covariance_with_loss(Loss::L2).unwrap();
+        assert!((plain[0] - l2[0]).abs() < 1e-12);
+    }
+
+    #[test]
+    fn covariance_with_robust_loss_ignores_outlier_scale() {
+        let res = line_fit_result(vec![0.1, -0.2, 0.05, 100.0]);
+        let plain = res.covariance().unwrap()[0];
+        let robust = res.covariance_with_loss(Loss::Huber { delta: 0.5 }).unwrap()[0];
+        assert!(robust.is_finite() && robust > 0.0);
+        assert!(robust < plain / 100.0, "robust {robust} should be far below plain {plain}");
     }
 }

@@ -77,7 +77,7 @@ fn linearize(problem: &NlsProblem, x: &[f64], cfg: &NlsConfig) -> Linearization 
 }
 
 /// `H = Jᵀ W J` with per-row weights (row-major `n × n`).
-fn weighted_normal_equations(j: &[f64], w: &[f64], m: usize, n: usize) -> Vec<f64> {
+pub(crate) fn weighted_normal_equations(j: &[f64], w: &[f64], m: usize, n: usize) -> Vec<f64> {
     let mut h = vec![0.0f64; n * n];
     for i in 0..m {
         let wi = w[i];

@@ -1,6 +1,7 @@
 # tpt-systems-optimisation â€” Build Todo
 
-> Tracks bootstrap + full 10-crate build-out for the tpt-systems-optimisation
+> Tracks bootstrap + full 15-crate build-out (14 solver crates plus the
+> `tpt-opt-systems` umbrella; MSRV 1.85) for the tpt-systems-optimisation
 > workspace, per `spec.txt`. License for every crate: `MIT OR Apache-2.0`.
 > Author: TPT Solutions. Unlike `tpt-math` (which stops at `status = "git"`),
 > **this workspace targets crates.io release** â€” every phase includes
@@ -605,7 +606,7 @@ starting point (adoption/examples).*
 
 ### Algorithmic gaps (acknowledged, not started)
 
-- [ ] `tpt-opt-robust`: SOCP/SDP reformulation for ellipsoidal uncertainty sets (today: conservative column-norm linearisation, since the bundled solvers are LP/MILP-only)
+- [x] `tpt-opt-robust`: SOCP/SDP reformulation for ellipsoidal uncertainty sets (done in 13e) (today: conservative column-norm linearisation, since the bundled solvers are LP/MILP-only)
 - [x] `tpt-opt-multi`: weighted-Tchebycheff scalarisation with adaptive weights — implemented as `LinearMultiObjective::solve_weighted_tchebycheff_adaptive` (+ `solve_adaptive_tchebycheff` convenience wrapper): repeated augmented-Tchebycheff solves whose normalised deviations rebalance weights toward a balanced achievement, with best-achievement tracking across iterates; deterministic (no randomness); tested for skewed-extreme escape, same-seed determinism, and η=0 reduction to plain augmented Tchebycheff
 - [ ] `tpt-opt-milp`: work-stealing parallel tree search (today: deterministic breadth-partitioned subtree assignment, correct but leaves performance on the table)
 - [x] `tpt-opt-network`: audit `graph_preprocess.rs` for series-parallel reduction â€” audit complete (2026-08-23): `series_parallel_check`/`SeriesParallelReport` is present, exported from the crate root, and unit-tested (series contraction, parallel-edge merge, dangling prune, K4 negative, bowtie/two-triangle positives); the Phase 3 flag was stale
@@ -670,7 +671,7 @@ out-of-repo fixture downloads remain explicitly deferred with a stated reason.*
       equals the sequential result (incumbent trajectory may differ). Test
       `work_stealing_matches_sequential_optimum` asserts objective equality at
       4 threads.
-- [ ] **`tpt-opt-robust` SOCP/SDP reformulation for ellipsoidal uncertainty**
+- [x] **`tpt-opt-robust` SOCP/SDP reformulation for ellipsoidal uncertainty** — superseded by 13e (`ellipsoid_socp_reformulation`, solved by `tpt-opt-conic`)
       — **DEFERRED (solver capability)**: the bundled solvers are LP/MILP only;
       a true second-order-cone / semidefinite program needs a conic solver
       (e.g. a CSDP/ECOS/OSQP-SOCP binding) which is not vendored. The
@@ -987,3 +988,89 @@ clean.
 Umbrella (item 7): `tpt-opt-systems` has a `bayes` feature (in `all-solvers`)
 and re-exports for `solve_socp_ip`, `ellipsoid_socp_reformulation`, the spatial
 B&B API, and the Bayesian optimiser. The feature matrix is updated.
+
+## Phase 14 — Review follow-ups: leftovers and adoption (added 2026-11-02)
+
+Review found no real stubs (`todo!`/`unimplemented!` are absent; the `TODO`
+strings in `xtask/src/main.rs` are the `new-crate` scaffold template). What
+remains is small leftovers plus the adoption gap: no modelling DSL, no
+prelude/auto-selection, a MILP-only CLI, no bindings, no release/docs pipeline.
+Sizes: S/M/L.
+
+**Status (2026-11-02, second pass):** 14a is done except the repo-hygiene
+commit decision; 14b is done; 14c is done except a FlatZinc subset; 14d is
+open (see below). Verified: `cargo test --workspace` passes (400 tests, 0
+failures; 405 in the final run), `cargo clippy --workspace --all-targets -- -D warnings`, the
+umbrella clippy with `--all-features`, and `cargo fmt --all -- --check` are
+clean, the `no_std` and no-default-feature builds succeed, and `cargo deny
+check licenses sources` passes. Not verified here: the `highs` feature (CMake
+is not installed on this machine, so `--solver highs` and
+`cargo build --features highs` fail in `highs-sys`); the three new workflows
+are syntax-checked (`js-yaml`) but have not run on GitHub; the mdBook builds
+locally. Still open: the uncommitted `ci.yml` (semver job `if: false`) and
+`rust-toolchain.toml` (thumbv6m target) changes need a commit-or-drop
+decision; a FlatZinc subset; and all of 14d, which is large or needs
+infrastructure this machine lacks (Python/maturin for the wheel, a WASM
+toolchain, and the `sc_opf`, Bayes-tree, and approximate-AMD work).
+
+### 14a — Leftovers
+
+- [x] Remove dead code: `tpt-opt-heuristic/src/problem.rs` `var_kind`,
+      `tpt-opt-milp/src/lp.rs` unused `sense` field, `tpt-opt-multi/src/scalarize.rs`
+      `_assert_status` and the empty `Scalarization` marker trait (S)
+- [x] Reconcile the `nlp` feature comment with its `dep:tpt-math-optimize-general`
+      declaration (`tpt-opt-core/Cargo.toml`, `src/nlp.rs`) (S)
+- [x] LP reader: accept objective constants; handle or clearly reject unknown
+      BOUNDS cards (`tpt-opt-milp/src/format.rs`) (S)
+- [x] SAA confidence interval: Student-t quantile for k < 30 instead of the
+      hardcoded 2.0 (`tpt-opt-robust/src/saa.rs`) (S)
+- [x] NLS covariance: scale `(JᵀJ)⁻¹` for non-L2 losses (`tpt-opt-nls/src/types.rs`) (S)
+- [x] Verify the stale-looking robust boxes (Phase "future work" ellipsoidal
+      SOCP/SDP) against item 13e — tick if the conic path is live (S)
+- [x] Gaussian chance constraints: route through `tpt-opt-conic` instead of
+      column-norm linearisation (`tpt-opt-robust/src/chance.rs`) (M)
+- [ ] Repo hygiene: remove stray `highs.json`, `highs_deps.json`, `highs_v.json`
+      (tracked in git — confirm they are junk first); fix the header ("10-crate",
+      MSRV 1.84 → 1.85); commit or drop the pending `ci.yml` (semver-checks
+      `if: false`) and `rust-toolchain.toml` (thumbv6m target) changes (S)
+
+### 14b — Ergonomics (highest adoption impact)
+
+- [x] Expression DSL in `tpt-opt-core` (`expr.rs`): `Var` handle, `LinExpr`,
+      `+ - *` operators, `.le()/.ge()/.eq()` helpers, named variables,
+      `Model::builder()`; lowers to the existing `Model`/`MilpBuilder`;
+      re-exported by the umbrella (L)
+- [x] `tpt_opt_systems::prelude` (S)
+- [x] `classify(&Model) -> ProblemClass` and `solve_auto` (both LP and MILP route to `MilpSolver`; the canonical model carries no other structure to dispatch on) dispatching to the right
+      crate behind feature flags (M)
+- [x] "Which solver should I use?" decision table in the README and umbrella docs (S)
+- [x] Umbrella `serde` passthrough feature; optional `tracing` feature (S)
+
+### 14c — Tooling
+
+- [x] CLI: subcommands `solve | info | convert | classify`, `--format json`,
+      `--solver {milp,highs}`, `--gap`, `--log`, solution-file output, optional
+      `clap`; wire the empty `highs` feature (M)
+- [x] JSON model import/export via serde (S) — **done** (`tpt_opt_systems::json`); OPB — **done** (`tpt-opt-milp::opb`, binary models with integer coefficients). **Still open:** a FlatZinc subset for CP (M)
+- [x] IIS (deletion filter) in `tpt-opt-milp` and a `PresolveReport` (M)
+- [x] CI: `release.yml` (release-plz or cargo-dist CLI binaries + binstall
+      metadata), `docs.yml` (rustdoc to Pages), `coverage.yml` (llvm-cov) (S each)
+- [x] mdBook (`docs/`): getting started, modelling cookbook, solver guide (M)
+- [x] Examples: `[[example]]` entries on the umbrella so `cargo run --example`
+      works; add network, nls, conic, bayes, factorgraph and MPS-loading examples;
+      mark README snippets `no_run` or link to real examples (S)
+- [x] `.devcontainer/` and an expanded CONTRIBUTING.md (S)
+
+### 14d — Larger / optional
+
+- [ ] Python wheel (PyO3/maturin) for milp, heuristic, multi; then a WASM browser
+      demo and a C ABI (L)
+- [ ] CP: incremental AC-3, impact/activity variable selection, stronger
+      table/circuit GAC (M each)
+- [ ] MILP work-stealing parallel tree search; published benchmark dashboard (L)
+- [ ] `sc_opf` co-optimised security-constrained OPF; full Bayes-tree for
+      `solve_incremental`; approximate-degree AMD ordering in nls (L / L / M)
+
+Blocked / out of scope (unchanged): crates.io publish and dry-runs, full
+MIPLIB/MINLPLib/Netlib/CSPLib corpora, commercial solver backends, upstream
+`thumbv6m` fix.

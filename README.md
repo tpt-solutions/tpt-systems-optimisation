@@ -141,6 +141,49 @@ cargo run --manifest-path examples/Cargo.toml --example flow_to_milp
 cargo run --manifest-path examples/Cargo.toml --example heuristic_pareto
 ```
 
+Umbrella-crate examples run with `cargo run -p tpt-opt-systems --example <name> --features <feature>`:
+`network_min_cost_flow` (`network`), `nls_exponential_fit` (`nls`),
+`conic_socp` (`conic`), `mps_loading` (`milp`), `bayes_minimise` (`bayes`), and
+`factorgraph_square_loop` (`factorgraph`).
+
+The `tpt-opt-cli` binary is documented in [`crates/tpt-opt-cli`](./crates/tpt-opt-cli):
+`solve`, `info`, `classify`, `convert`, `iis`, and `presolve`, with JSON output.
+
+### Expression DSL
+
+Named variables and operator syntax lower to the same canonical model:
+
+```rust
+use tpt_opt_systems::prelude::*;
+
+let mut b = ModelBuilder::new();
+let x = b.continuous("x", 0.0, 10.0);
+let y = b.integer("y", 0.0, 5.0);
+b.constrain((2.0 * x + 3.0 * y).le(12.0));
+b.maximize(x + 4.0 * y);
+let model = b.build()?;
+assert_eq!(classify(&model), ProblemClass::MixedInteger);
+let sol = solve_auto(&model)?; // needs the `milp` feature
+```
+
+### Which solver should I use?
+
+| Problem shape | Start with | Feature |
+|---------------|------------|---------|
+| Linear, continuous or mixed-integer | `solve_auto` or `MilpSolver` | `milp` |
+| Min-cost flow, assignment, power flow | `NetworkFlowBuilder` | `network` |
+| Convex MINLP (process design, unit commitment) | `minlp::oa`, `minlp::gbd` | `minlp` |
+| Bilinear program over a finite box (global) | `minlp::spatial` | `minlp` |
+| Combinatorial with `alldifferent` / scheduling globals | `cp` | `cp` |
+| Black-box, no gradients, rugged landscape | annealing / GA / tabu / PSO | `heuristic` |
+| Several conflicting objectives | NSGA-II/III, ε-constraint | `multi` |
+| Data uncertainty with recourse or chance limits | two-stage / SAA / chance | `robust` |
+| Large structured MILP (Benders, column generation) | `decompose` | `decompose` |
+| Second-order-cone or semidefinite constraints | `conic` | `conic` |
+| Least squares, curve fitting, calibration | `nls` | `nls` |
+| Pose graphs, bundle adjustment, SLAM | `factorgraph` | `factorgraph` |
+| Expensive black-box function, few evaluations | `bayes` | `bayes` |
+
 ## Tooling
 
 All task logic lives in the `xtask` crate; both `cargo` and `just` front it:

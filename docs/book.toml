@@ -1,0 +1,11 @@
+[book]
+title = "tpt-systems-optimisation"
+authors = ["TPT Solutions"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/tpt-solutions/tpt-systems-optimisation"

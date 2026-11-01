@@ -56,3 +56,52 @@ behind a non-default feature.
 
 Conventional-commit-ish prefixes (`feat:`, `fix:`, `docs:`, `test:`, `ci:`,
 `chore:`) keep the history scannable.
+## Development setup
+
+The devcontainer in [`.devcontainer/`](./.devcontainer) installs everything
+below. To set it up by hand:
+
+- Rust **1.85** (`rust-toolchain.toml` pins it), with `rustfmt` and `clippy`.
+- `cmake` and a C++ toolchain, only if you build the `highs` feature.
+- Optional tools: `just`, `cargo-deny`, `cargo-nextest`, `mdbook`,
+  `cargo-llvm-cov`.
+
+```text
+cargo test --workspace          # all tests and doctests
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+mdbook build docs               # the user guide, output in docs/book/
+```
+
+## Documentation
+
+- **API reference**: rustdoc. Build it with `cargo doc --workspace --no-deps`.
+  CI fails on rustdoc warnings, so broken intra-doc links break the build.
+- **User guide**: the mdBook in [`docs/`](./docs). Chapters are in
+  `docs/src/`, and `SUMMARY.md` controls the order.
+- **Per-crate**: each crate's `README.md` and `CHANGELOG.md`.
+
+## Adding a crate
+
+Use the scaffolding that matches the per-crate checklist:
+
+```text
+cargo xtask new-crate tpt-opt-example
+```
+
+It creates `Cargo.toml` (inheriting workspace fields), a `lib.rs` stub,
+`README.md`, `CHANGELOG.md`, and the licence files. Then work through the
+checklist in `todo.md`.
+
+## Examples
+
+Umbrella examples live in `crates/tpt-opt-systems/examples/`. Each one names
+the feature it needs in `Cargo.toml`, so `cargo test` skips it when the
+feature is off. Cross-crate examples are in `examples/`, run with
+`cargo run --manifest-path examples/Cargo.toml --example <name>`.
+
+## Releasing the CLI
+
+Tag the commit with `tpt-opt-cli-v<version>`. The `release.yml` workflow builds
+archives for Linux, macOS (Apple Silicon), and Windows, then attaches them to
+the GitHub release. Publishing to crates.io stays a separate, manual step.

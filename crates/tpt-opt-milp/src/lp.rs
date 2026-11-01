@@ -101,9 +101,6 @@ pub struct LpState {
     pub col_expr: Vec<Option<RecoverEntry>>,
     /// Constant term of the objective.
     pub obj_constant: f64,
-    /// Original model sense (retained for cut re-optimisation context).
-    #[allow(dead_code)]
-    pub sense: Sense,
 }
 
 /// Solve the LP relaxation, returning only the [`LpSolution`].
@@ -372,7 +369,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                     recover,
                     col_expr,
                     obj_constant,
-                    sense,
                 );
             }
         }
@@ -408,7 +404,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             recover,
             col_expr,
             obj_constant,
-            sense,
         };
     }
 
@@ -473,7 +468,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             recover,
             col_expr,
             obj_constant,
-            sense,
         );
     }
     for ri in 0..mrows {
@@ -495,7 +489,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 recover,
                 col_expr,
                 obj_constant,
-                sense,
             );
         }
     }
@@ -544,7 +537,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             recover,
             col_expr,
             obj_constant,
-            sense,
         );
     }
 
@@ -586,7 +578,6 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         recover,
         col_expr,
         obj_constant,
-        sense,
     )
 }
 
@@ -608,7 +599,6 @@ fn finish_state(
     recover: Vec<RecoverEntry>,
     col_expr: Vec<Option<RecoverEntry>>,
     obj_constant: f64,
-    sense: Sense,
 ) -> LpState {
     LpState {
         sol,
@@ -626,7 +616,6 @@ fn finish_state(
         recover,
         col_expr,
         obj_constant,
-        sense,
     }
 }
 

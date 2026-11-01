@@ -30,10 +30,11 @@ serde_json = "1.0"
 default = ["std"]
 std = ["alloc"]
 alloc = []
-# Augmented-Lagrangian constrained-NLP solver (`solve_nlp`/`NlpProblem`),
-# vendored locally as a self-contained BFGS implementation because the
-# published `tpt-math-optimize-general` only exposes unconstrained minimizers.
-# Implies `alloc` (uses `Vec`); does not depend on `tpt-math-optimize-general`.
+# Augmented-Lagrangian constrained-NLP solver (`solve_nlp`/`NlpProblem`). Its
+# inner subproblem uses the conjugate-gradient minimizer from
+# `tpt-math-optimize-general` as the primary solver, with a self-contained BFGS
+# fallback kept in-crate (the published crate only exposes unconstrained
+# minimizers). Implies `alloc` (uses `Vec`).
 nlp = ["dep:tpt-math-optimize-general", "alloc"]
 # Serialize/Deserialize derives on the canonical model, solution, parameters,
 # tolerances, and error types (warm-start caching, reproducible bug reports).

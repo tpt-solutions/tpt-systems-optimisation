@@ -10,7 +10,7 @@ use std::vec::Vec;
 use tpt_opt_core::bounds::Bound;
 use tpt_opt_core::model::{Constraint, Model, Objective, Sense};
 use tpt_opt_core::solver::Solver;
-use tpt_opt_core::{OptError, SolverStatus, VarBound};
+use tpt_opt_core::{OptError, VarBound};
 use tpt_opt_milp::MilpSolver;
 
 /// A single linear objective `c·x + constant`.
@@ -429,15 +429,6 @@ pub fn adaptive_tchebycheff(prob: &LinearMultiObjective) -> Result<Vec<f64>, Opt
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
-/// Marker trait alias kept for API symmetry with the other solver crates.
-pub trait Scalarization {}
-impl Scalarization for LinearMultiObjective {}
-
-#[allow(dead_code)]
-fn _assert_status(s: SolverStatus) -> bool {
-    s.has_solution()
 }
 
 #[cfg(test)]

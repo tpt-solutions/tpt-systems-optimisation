@@ -29,7 +29,7 @@ pub use hypervolume::hypervolume;
 pub use normalizer::ObjectiveNormalizer;
 pub use nsga2::{Nsga2, Nsga2Config};
 pub use nsga3::{das_dennis, Nsga3, Nsga3Config};
-pub use scalarize::{LinearMultiObjective, Scalarization};
+pub use scalarize::LinearMultiObjective;
 
 use tpt_math_prob::sampler::Rng;
 

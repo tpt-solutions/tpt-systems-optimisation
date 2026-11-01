@@ -23,3 +23,16 @@ tpt-opt-milp = { workspace = true }
 
 [features]
 default = []
+# Adds `--solver highs`, using the HiGHS binding in `tpt-opt-milp`. Needs a
+# C++ toolchain (cmake plus MSVC, gcc, or clang) at build time.
+highs = ["tpt-opt-milp/highs"]
+
+# `cargo binstall tpt-opt-cli` downloads the release archives built by
+# .github/workflows/release.yml (tag `tpt-opt-cli-v<version>`).
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/tpt-opt-cli-v{ version }/tpt-opt-cli-{ target }.tar.gz"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/tpt-opt-cli-v{ version }/tpt-opt-cli-{ target }.zip"
+pkg-fmt = "zip"

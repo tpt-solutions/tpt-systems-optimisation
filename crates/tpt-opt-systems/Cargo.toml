@@ -32,10 +32,18 @@ all-features = true
     tpt-opt-nls = { workspace = true, optional = true }
     tpt-opt-factorgraph = { workspace = true, optional = true }
     tpt-opt-bayes = { workspace = true, optional = true }
+    serde_json = { version = "1.0", optional = true }
+    tracing = { version = "0.1", optional = true, default-features = false, features = ["std"] }
 
 [features]
 default = ["std"]
 std = []
+# Serde derives on the canonical model, solution, and parameter types
+# (JSON model import/export, warm-start caching). Forwards to `tpt-opt-core`.
+serde = ["tpt-opt-core/serde", "dep:serde_json"]
+# Structured spans and events (via `tracing`) around the auto-dispatch solve.
+# Off by default so the dependency is opt-in.
+tracing = ["dep:tracing"]
 
 # ---- One flat feature per solver crate -----------------------------------
 # Mixed-integer linear programming (branch-and-bound/cut).
@@ -82,3 +90,28 @@ all-solvers = [
     "factorgraph",
     "bayes",
 ]
+# Runnable examples. Each names the feature it needs so that a plain
+# `cargo test` (which builds examples) skips it instead of failing.
+[[example]]
+name = "network_min_cost_flow"
+required-features = ["network"]
+
+[[example]]
+name = "nls_exponential_fit"
+required-features = ["nls"]
+
+[[example]]
+name = "conic_socp"
+required-features = ["conic"]
+
+[[example]]
+name = "mps_loading"
+required-features = ["milp"]
+
+[[example]]
+name = "bayes_minimise"
+required-features = ["bayes"]
+
+[[example]]
+name = "factorgraph_square_loop"
+required-features = ["factorgraph"]

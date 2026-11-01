@@ -44,6 +44,27 @@
 //! min-cost-flow instance to a canonical MILP so any MILP backend can solve
 //! it.
 //!
+//! ## Which solver should I use?
+//!
+//! | Problem shape | Start with | Feature |
+//! |---------------|------------|---------|
+//! | Linear, continuous or mixed-integer | [`solve_auto`] or `MilpSolver` | `milp` |
+//! | Min-cost flow, assignment, power flow | `NetworkFlowBuilder` / `network` modules | `network` |
+//! | Convex MINLP (process design, unit commitment) | `minlp::oa` / generalised Benders | `minlp` |
+//! | Bilinear program over a finite box (global) | `minlp::spatial` | `minlp` |
+//! | Combinatorial with `alldifferent` / scheduling globals | `cp` | `cp` |
+//! | Black-box, no gradients, rugged landscape | annealing / GA / tabu / PSO | `heuristic` |
+//! | Several conflicting objectives | NSGA-II/III, ε-constraint | `multi` |
+//! | Data uncertainty with recourse or chance limits | two-stage / SAA / chance | `robust` |
+//! | Large structured MILP (Benders, column generation) | `decompose` | `decompose` |
+//! | Second-order-cone or semidefinite constraints | `conic` | `conic` |
+//! | Least squares, curve fitting, calibration | `nls` | `nls` |
+//! | Pose graphs, bundle adjustment, SLAM | `factorgraph` | `factorgraph` |
+//! | Expensive black-box function, few evaluations | `bayes` | `bayes` |
+//!
+//! [`classify`] reports whether a [`Model`] is a linear program or a
+//! mixed-integer program, which is the only split the canonical model carries.
+//!
 //! ## Example
 //!
 //! ```toml
@@ -90,7 +111,20 @@ pub mod convert;
 
 pub use error::OptimizationError;
 
+mod auto;
+#[cfg(feature = "serde")]
+pub mod json;
+
+#[cfg(feature = "milp")]
+pub use auto::solve_auto;
+pub use auto::{classify, ProblemClass};
+
 // ---- Always-on core surface ----------------------------------------------
+/// Expression DSL (`tpt-opt-core::expr`): named variables, `+ - *` operators,
+/// and `.le` / `.ge` / `.eq` relations that lower to a [`Model`].
+pub use tpt_opt_core::expr;
+pub use tpt_opt_core::expr::{LinExpr, LinRelation, ModelBuilder, Var};
+
 /// The canonical problem representation and solver contract
 /// (`tpt-opt-core`), available with no features enabled.
 pub use tpt_opt_core as core;
@@ -164,7 +198,7 @@ pub use tpt_opt_multi as multi;
 pub use tpt_opt_multi::{
     cluster_solutions, das_dennis, dominates, epsilon_indicator, hypervolume, knee_point,
     pareto_front, tradeoff_ratios, LinearMultiObjective, Nsga2, Nsga2Config, Nsga3, Nsga3Config,
-    ObjectiveNormalizer, Scalarization,
+    ObjectiveNormalizer,
 };
 
 /// Optimisation under uncertainty (feature `robust`).
@@ -223,3 +257,18 @@ pub use tpt_opt_factorgraph::{
 pub use tpt_opt_bayes as bayes;
 #[cfg(feature = "bayes")]
 pub use tpt_opt_bayes::{BayesOpt, BoConfig, BoError, BoResult};
+
+/// Common imports: `use tpt_opt_systems::prelude::*;`.
+///
+/// Brings in the modelling types, the [`Solver`] trait needed to call
+/// `solve`, the classifier, and whichever solver front ends the enabled
+/// features provide.
+pub mod prelude {
+    pub use crate::core::{Model, OptError, Solution, Solver, SolverStatus};
+    pub use crate::{classify, LinExpr, LinRelation, ModelBuilder, ProblemClass, Var};
+
+    #[cfg(feature = "network")]
+    pub use crate::NetworkFlowBuilder;
+    #[cfg(feature = "milp")]
+    pub use crate::{milp::MilpSolver, solve_auto, MilpBuilder};
+}

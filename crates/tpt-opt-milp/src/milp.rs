@@ -234,7 +234,7 @@ impl MilpSolver {
 
     /// Enable the dynamic work-stealing parallel tree search. With `threads >
     /// 1` this replaces the default deterministic breadth-partition search
-    /// ([`MilpSolver::solve_parallel`]) with a shared work queue that idle
+    /// (`MilpSolver::solve_parallel`) with a shared work queue that idle
     /// worker threads steal subtrees from, balancing load when subtrees are
     /// uneven. The result still equals the sequential optimum (it explores the
     /// same tree), but exploration order — and therefore the exact incumbent

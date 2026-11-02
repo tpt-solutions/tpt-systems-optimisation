@@ -48,7 +48,7 @@
 //!
 //! | Problem shape | Start with | Feature |
 //! |---------------|------------|---------|
-//! | Linear, continuous or mixed-integer | [`solve_auto`] or `MilpSolver` | `milp` |
+//! | Linear, continuous or mixed-integer | `solve_auto` or `MilpSolver` | `milp` |
 //! | Min-cost flow, assignment, power flow | `NetworkFlowBuilder` / `network` modules | `network` |
 //! | Convex MINLP (process design, unit commitment) | `minlp::oa` / generalised Benders | `minlp` |
 //! | Bilinear program over a finite box (global) | `minlp::spatial` | `minlp` |
@@ -260,7 +260,7 @@ pub use tpt_opt_bayes::{BayesOpt, BoConfig, BoError, BoResult};
 
 /// Common imports: `use tpt_opt_systems::prelude::*;`.
 ///
-/// Brings in the modelling types, the [`Solver`] trait needed to call
+/// Brings in the modelling types, the [`crate::core::Solver`] trait needed to call
 /// `solve`, the classifier, and whichever solver front ends the enabled
 /// features provide.
 pub mod prelude {

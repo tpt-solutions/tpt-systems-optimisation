@@ -19,7 +19,7 @@
 //! - Modelling extras: SOS1/SOS2 sets ([`sos`]), indicator constraints
 //!   ([`indicator`]), and piecewise-linear objectives ([`piecewise`]).
 //! - Deterministic parallel tree search via `.with_threads(n > 1)`.
-//! - MPS / CPLEX-LP file-format import and export ([`format`]).
+//! - MPS / CPLEX-LP file-format import and export ([`mod@format`]).
 
 pub mod cuts;
 pub mod format;

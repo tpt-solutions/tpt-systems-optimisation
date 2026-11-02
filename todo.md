@@ -1161,8 +1161,11 @@ Recorded from the sweep work. Items are ordered by priority.
       regression). Multi-stage models are not swept yet.
 - [~] MINLP crate: convex instances against enumeration (`tests/sweep_convex_minlp.rs`,
       30 instances, about 25 s). OA, GBD and SQP-B&B must all reach the optimum; GBD
-      is now strict since the multiplier-based cuts (15a). A 200-instance run has not
-      yet completed. Nonconvex and multi-integer instances are not swept.
+      is now strict since the multiplier-based cuts (15a). A 200-instance run passes
+      (133 s; the committed file keeps 30 for speed). That run found an OA stall, now
+      fixed: an NLP failure on a feasible master point looped until `max_iter`. The
+      inner NLP solver still returns `MaxIters` on that feasible point, which is a
+      separate weakness. Nonconvex and multi-integer instances are not swept.
 - [x] Conic SDP path: a closed-form check on the unit disc (`tests/sweep_sdp_disc.rs`).
 
 ### 15c — Verification gaps (need tooling not present on this machine)

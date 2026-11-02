@@ -6,6 +6,12 @@ starting from the initial `0.1.0`.
 
 ## [Unreleased]
 
+### Fixed
+- `outer_approximate` no longer repeats the same master point until `max_iter` when
+  the fixed-integer NLP fails to converge on a point that already satisfies every
+  constraint. Such a point is now used as the feasible subproblem solution and
+  contributes an objective cut, so the loop makes progress.
+
 ### Changed
 - `generalized_benders` optimality cuts now come from the KKT multipliers of the
   continuous subproblem (recovered by a least-residual LP and certified by its

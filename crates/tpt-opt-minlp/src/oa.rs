@@ -146,11 +146,26 @@ pub fn outer_approximate(model: &MinlpModel, cfg: &OaConfig) -> OaResult {
         let feas = res.status == NlpStatus::Converged
             && crate::subproblem::max_violation(model, &ys, &res.x) < 1e-4;
 
-        if !feas {
-            if res.status == NlpStatus::Diverged {
-                status = OaStatus::NumericalIssue;
-                break;
-            }
+        if !feas && res.status == NlpStatus::Diverged {
+            status = OaStatus::NumericalIssue;
+            break;
+        }
+
+        // The master point is itself feasible when no constraint is violated and its
+        // integers are already exact. The NLP can fail to certify such a point (it
+        // starts from the same place), so use the point directly. Otherwise the loop
+        // would return the same point forever.
+        let master_feasible =
+            violated.is_empty() && xm.iter().zip(&ys).all(|(a, b)| (a - b).abs() <= 1e-9);
+        let candidate = if feas {
+            Some((res.x.clone(), res.objective))
+        } else if master_feasible {
+            Some((xm.clone(), model.eval_objective(&xm)))
+        } else {
+            None
+        };
+
+        let Some((x_feas, f_feas)) = candidate else {
             // Subproblem failed to converge cleanly: fall back to tangent
             // cuts at both the master point and the returned point to keep
             // refining the relaxation.
@@ -167,17 +182,17 @@ pub fn outer_approximate(model: &MinlpModel, cfg: &OaConfig) -> OaResult {
                 gap: upper - lower,
             });
             continue;
-        }
+        };
 
         // ---- Incumbent update + optimality cut ------------------------------
-        if res.objective < upper {
-            upper = res.objective;
-            best_x = Some(res.x.clone());
+        if f_feas < upper {
+            upper = f_feas;
+            best_x = Some(x_feas.clone());
         }
-        add_objective_cut(model, &res.x, &mut cuts);
+        add_objective_cut(model, &x_feas, &mut cuts);
         for ci in 0..model.constraints.len() {
-            if model.is_active(ci, &res.x) {
-                add_constraint_cuts(model, ci, &res.x, &mut cuts);
+            if model.is_active(ci, &x_feas) {
+                add_constraint_cuts(model, ci, &x_feas, &mut cuts);
             }
         }
         history.push(ConvergenceCertificate {

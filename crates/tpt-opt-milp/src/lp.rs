@@ -182,7 +182,8 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             while struct_exprs.len() < col {
                 struct_exprs.push(None);
             }
-            struct_exprs.push(Some((vec![(j, coef)], v.shift)));
+            // y = x - shift for a shifted column, so y = coef*x - shift here.
+            struct_exprs.push(Some((vec![(j, coef)], -v.shift)));
         }
     }
 
@@ -194,9 +195,11 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         /// Expression of the row's slack/surplus column in original
         /// variables: `s = sum(coef * x) + const` (None for equality rows).
         slack_expr: Option<(Vec<(usize, f64)>, f64)>,
+        /// Originating model constraint; `None` for variable-bound rows.
+        con: Option<usize>,
     }
     let mut rows: Vec<Row> = Vec::with_capacity(model.constraints.len() + free_ub_rows.len());
-    for c in &model.constraints {
+    for (ci, c) in model.constraints.iter().enumerate() {
         let has_lo = c.lower > f64::NEG_INFINITY + 1.0;
         let has_hi = c.upper < f64::INFINITY - 1.0;
         if has_lo && has_hi && (c.upper - c.lower).abs() > 1e-12 {
@@ -220,6 +223,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                     c.indices.iter().copied().zip(c.coeffs.iter().copied()).collect(),
                     -c.lower,
                 )),
+                con: Some(ci),
             });
             rows.push(Row {
                 lhs: mk(c.upper),
@@ -230,6 +234,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                     c.indices.iter().copied().zip(c.coeffs.iter().map(|a| -a)).collect(),
                     c.upper,
                 )),
+                con: Some(ci),
             });
         } else {
             let mut lhs = Vec::new();
@@ -265,7 +270,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 )),
                 RowKind::Eq => None,
             };
-            rows.push(Row { lhs, rhs, kind, slack_expr });
+            rows.push(Row { lhs, rhs, kind, slack_expr, con: Some(ci) });
         }
     }
     for (yp, ym, ub) in free_ub_rows {
@@ -273,7 +278,13 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         // The original variable j satisfies x_j = yp - ym; the row slack is
         // s = ub - x_j.
         let j = col_to_orig[yp].expect("free-split column maps to an original variable");
-        rows.push(Row { lhs, rhs: ub, kind: RowKind::Le, slack_expr: Some((vec![(j, -1.0)], ub)) });
+        rows.push(Row {
+            lhs,
+            rhs: ub,
+            kind: RowKind::Le,
+            slack_expr: Some((vec![(j, -1.0)], ub)),
+            con: None,
+        });
     }
     // Enforce finite upper bounds on structural columns as explicit <= rows so
     // the simplex respects variable bounds (binary/integer domains, etc.).
@@ -287,6 +298,7 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
                 rhs: *u,
                 kind: RowKind::Le,
                 slack_expr: Some((vec![(j, -1.0)], u + lb)),
+                con: None,
             });
         }
     }
@@ -443,6 +455,13 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         }
     }
 
+    // Column that starts as +e_i in each row (the artificial when there is one,
+    // else the slack). Captured now, before any pivot moves the basis.
+    let unit_col: Vec<usize> = (0..mrows)
+        .map(|ri| if art_of_row[ri] != usize::MAX { art_of_row[ri] } else { basis[ri] })
+        .collect();
+    let obj_sign = if sense == Sense::Maximize { -1.0 } else { 1.0 };
+
     let mut cost = vec![0.0f64; n_cols];
     for ri in 0..mrows {
         if art_of_row[ri] != usize::MAX {
@@ -470,8 +489,12 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
             obj_constant,
         );
     }
+    // Phase I succeeded only if every artificial is zero. An artificial can be
+    // basic in any row after pivoting, so test the basis rather than each row's
+    // own artificial.
+    let first_artificial = n_struct + n_slack;
     for ri in 0..mrows {
-        if art_of_row[ri] != usize::MAX && basis[ri] == art_of_row[ri] && b[ri] > tol.feasibility {
+        if basis[ri] >= first_artificial && b[ri] > tol.feasibility {
             sol.status = LpStatus::Infeasible;
             return finish_state(
                 sol,
@@ -499,7 +522,9 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
     // artificial stays basic at zero and no entering column can change it.
     let real_cols = n_struct + n_slack;
     for ri in 0..mrows {
-        if art_of_row[ri] == usize::MAX || basis[ri] != art_of_row[ri] {
+        // Any artificial may be basic here, not only the one created for this
+        // row: artificials can leave and re-enter during phase I.
+        if basis[ri] < real_cols {
             continue;
         }
         let mut target = usize::MAX;
@@ -540,15 +565,21 @@ pub fn solve_lp_state(model: &Model, var_lb: &[f64], var_ub: &[f64], tol: Tolera
         );
     }
 
-    let row_kinds: Vec<RowKind> = norm_kinds.clone();
+    // Each tableau row maps back to its model constraint (`None` for bound rows),
+    // with the sign of the orientation flip that normalised its right-hand side.
+    let row_map: Vec<(Option<usize>, f64)> =
+        rows.iter().map(|r| (r.con, if r.rhs < 0.0 { -1.0 } else { 1.0 })).collect();
     let (x, obj, dual, reduced_costs) = recover_solution(
         &a,
         &b,
         &basis,
         &recover,
         &lp_cost_raw,
+        &lp_cost,
+        &unit_col,
+        obj_sign,
         &col_to_orig,
-        &row_kinds,
+        &row_map,
         n,
         n_struct,
         mrows,
@@ -626,8 +657,11 @@ fn recover_solution(
     basis: &[usize],
     recover: &[(Vec<(usize, f64)>, f64)],
     lp_cost_raw: &[f64],
+    lp_cost: &[f64],
+    unit_col: &[usize],
+    obj_sign: f64,
     col_to_orig: &[Option<usize>],
-    row_kinds: &[RowKind],
+    row_map: &[(Option<usize>, f64)],
     n: usize,
     n_struct: usize,
     mrows: usize,
@@ -659,19 +693,24 @@ fn recover_solution(
     let _ = n;
     let _ = n_constraints;
 
+    // Costs of the basic columns, in the signed (minimisation) form the basis is
+    // optimal for. Basic slacks and artificials cost zero.
     let n_cols = if a.is_empty() { 0 } else { a[0].len() };
-    let mut full_cost = vec![0.0f64; n_cols];
-    for k in 0..n_struct.min(n_cols) {
-        full_cost[k] = lp_cost_raw[k];
-    }
-    let w = solve_basis_transpose(a, basis, &full_cost, mrows);
+    let mut cost_signed = vec![0.0f64; n_cols];
+    cost_signed[..n_struct.min(n_cols)].copy_from_slice(&lp_cost[..n_struct.min(n_cols)]);
+    let cb: Vec<f64> = (0..mrows).map(|k| cost_signed[basis[k]]).collect();
+
+    // Simplex multipliers in the signed form: w = c_B B^{-1}. B^{-1} e_i is the
+    // tableau column of the unit column that started as +e_i in row i.
+    let w: Vec<f64> =
+        (0..mrows).map(|i| (0..mrows).map(|k| cb[k] * a[k][unit_col[i]]).sum()).collect();
+
+    // Reduced costs of the structural columns, c_j - c_B B^{-1} A_j, reported in
+    // the original objective's sense.
     let mut reduced = vec![0.0f64; n_struct];
     for j in 0..n_struct {
-        let mut red = lp_cost_raw[j];
-        for ri in 0..mrows {
-            red -= w[ri] * a[ri][j];
-        }
-        reduced[j] = red;
+        let d: f64 = cost_signed[j] - (0..mrows).map(|k| cb[k] * a[k][j]).sum::<f64>();
+        reduced[j] = obj_sign * d;
     }
     let mut reduced_costs = vec![0.0f64; n];
     for (j, (terms, _shift)) in recover.iter().enumerate() {
@@ -681,15 +720,16 @@ fn recover_solution(
         }
         reduced_costs[j] = rc;
     }
+    // A row's multiplier, undone for the row's flip, is the sensitivity of the
+    // objective to its right-hand side, in the original sense. Add it to the
+    // constraint it came from; a ranged constraint has two rows, and their
+    // contributions add.
     let mut dual = vec![0.0f64; *n_constraints];
-    for (i, &kind) in row_kinds.iter().enumerate() {
-        if i < dual.len() {
-            dual[i] = -w[i]
-                * match kind {
-                    RowKind::Le => 1.0,
-                    RowKind::Ge => -1.0,
-                    RowKind::Eq => 1.0,
-                };
+    for (i, &(con, flip)) in row_map.iter().enumerate() {
+        if let Some(c) = con {
+            if c < dual.len() {
+                dual[c] += obj_sign * flip * w[i];
+            }
         }
     }
     (x, obj, dual, reduced_costs)
@@ -786,8 +826,20 @@ fn run_simplex(
         let mut best_ratio = f64::INFINITY;
         for ri in 0..mrows {
             let av = a[ri][entering];
-            if av > tol.feasibility {
-                let ratio = b[ri] / av;
+            // In phase II an artificial basic at zero must leave on any nonzero
+            // entry, whatever its sign: the pivot changes no value, and ignoring a
+            // negative entry would let the artificial grow and break a row.
+            let zero_artificial = basis[ri] >= enter_limit
+                && b[ri].abs() <= tol.feasibility
+                && av.abs() > tol.feasibility;
+            let ratio = if zero_artificial {
+                Some(0.0)
+            } else if av > tol.feasibility {
+                Some(b[ri] / av)
+            } else {
+                None
+            };
+            if let Some(ratio) = ratio {
                 if ratio < best_ratio - 1e-12
                     || (ratio < best_ratio + 1e-12
                         && leaving != usize::MAX

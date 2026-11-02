@@ -22,6 +22,27 @@ starting from the initial `0.1.0` scaffold.
 - `read_lp` rejects trailing tokens in Bounds entries and constraint right-hand
   sides instead of silently dropping them.
 - Removed the unused `sense` field from `LpState`.
+- `Instant` comes from `web-time`, so the solver's time limit works on
+  `wasm32-unknown-unknown`.
+
+### Fixed
+- Duals (`lp.rs`): the dual of each row was the cost of the basic variable in
+  that row rather than the simplex multiplier, and its sign depended on the row
+  kind, so duals of `<=` and `=` rows were negated. Reduced costs are now taken
+  from the basis costs against the tableau. Checked by strong duality on 3000
+  random LPs (`tests/lp_duality.rs`) and a regression for each row kind and sense.
+  Column generation (`tpt-opt-decompose`) depended on these duals.
+- Root cuts (`gomory.rs`, `lp.rs`): the tableau-space column expression of a
+  shifted integer column had the wrong sign (`y = x - lb` was recorded as
+  `y = x + lb`). Gomory and lift-and-project cuts were invalid for variables with
+  nonzero lower bounds, and `with_cuts(true)` could report a feasible model as
+  infeasible. Found by a brute-force check against enumeration
+  (`tests/milp_bruteforce.rs`), which passes on 20 000 random models.
+- LP relaxation (`lp.rs`): phase I missed a positive artificial sitting in a
+  row other than its own, so an infeasible LP could report `Optimal`. Phase II
+  let a zero-valued artificial grow past a negative entry, which could break an
+  equality. Both are fixed, and a random cross-check against the network LP
+  agrees on 3000 cases.
 
 ## [0.1.0] - Unreleased
 

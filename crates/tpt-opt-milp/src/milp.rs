@@ -27,8 +27,10 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
 use std::vec::Vec;
+use web_time::Instant;
 
 use tpt_opt_core::{
     model::{Constraint, Model, Sense},

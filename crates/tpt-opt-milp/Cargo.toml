@@ -24,6 +24,8 @@ rustdoc-args = ["--cfg", "docsrs"]
     tpt-opt-core = { workspace = true }
     tpt-math-linalg-sparse = { workspace = true }
     highs = { version = "2.4", optional = true }
+    # Monotonic clock: std Instant on native targets, performance.now() on wasm.
+    web-time = "1"
 
 [features]
 default = ["std"]

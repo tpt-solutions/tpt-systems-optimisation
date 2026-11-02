@@ -3,6 +3,7 @@
 
 pub mod constraints;
 pub mod domain;
+pub mod flatzinc;
 pub mod model;
 pub mod solver;
 

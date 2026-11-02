@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- FlatZinc subset front end (`flatzinc`): parse and solve variable and array
+  declarations, `int_lin_le`/`int_lin_eq`/`int_lin_lt`, `int_eq`/`int_le`/`int_lt`,
+  `all_different_int`, and `solve satisfy`/`minimize`/`maximize`. Optimisation
+  enumerates solutions, up to 100 000.
 - Integer domains with value-set operations (`domain::Domain`).
 - Propagation fixpoint over per-constraint filters (`model::fixpoint`).
 - Constraints: `Linear`, `AllDifferent`, `Cumulative`, `Element`, `Table`,

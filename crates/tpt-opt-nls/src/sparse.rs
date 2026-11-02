@@ -9,10 +9,10 @@
 //! Pipeline:
 //! 1. [`analyze`] symmetrises the sparsity pattern of a symmetric matrix
 //!    given as [`Triplet`]s and computes a fill-reducing ordering
-//!    ([`Ordering::MinDegree`]: greedy minimum-degree on the quotient graph —
-//!    the exact-degree core of AMD; the approximate-degree and
-//!    multiple-elimination refinements are documented as future work) or the
-//!    identity ([`Ordering::Natural`]). Along the way it runs the elimination
+//!    ([`Ordering::ApproxMinDegree`], the default: quotient-graph minimum
+//!    degree with approximate external degrees, as in AMD; the exact-degree
+//!    [`Ordering::MinDegree`] and the identity [`Ordering::Natural`] are also
+//!    available). Along the way it runs the elimination
 //!    game once, which yields the **exact filled pattern** of `L` — the
 //!    column counts and row patterns fall out directly, no elimination-tree
 //!    reach machinery required.
@@ -89,6 +89,11 @@ pub enum Ordering {
     /// Greedy minimum degree on the quotient graph (exact-degree core of
     /// AMD; deterministic tie-break by lowest index).
     MinDegree,
+    /// Quotient-graph minimum degree with **approximate external degrees**
+    /// (Amestoy–Davis–Duff). Each pivot updates its neighbours' degrees from
+    /// element boundary sizes instead of forming the elimination clique, so it
+    /// is far cheaper than [`Ordering::MinDegree`] on large patterns.
+    ApproxMinDegree,
 }
 
 /// Symbolic analysis of a symmetric matrix: permutation + exact filled
@@ -148,6 +153,92 @@ impl SymbolicLdl {
     }
 }
 
+/// Quotient-graph minimum degree with approximate external degrees.
+///
+/// Eliminated pivots become *elements* whose boundary `le[e]` is the set of
+/// live variables they touch. A variable's degree is estimated from its direct
+/// neighbours and the element boundaries that remain after the pivot, using
+/// the AMD bound `min(n−k−1, d_old + |Lp|−1, |A_i| + |Lp|−1 + Σ_e |L_e \ Lp|)`.
+/// Ties go to the lowest index, so the order is deterministic.
+fn approx_min_degree(n: usize, adj: &[BTreeSet<usize>]) -> Vec<usize> {
+    let mut adj_v: Vec<BTreeSet<usize>> = adj.to_vec();
+    let mut adj_e: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
+    let mut le: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut absorbed = vec![false; n];
+    let mut eliminated = vec![false; n];
+    let mut deg: Vec<usize> = adj_v.iter().map(BTreeSet::len).collect();
+    let mut in_lp = vec![false; n];
+    // Per-element weight `|L_e \ Lp|`, valid when `stamp[e]` equals the step.
+    let mut w = vec![0usize; n];
+    let mut stamp = vec![usize::MAX; n];
+    let mut order = Vec::with_capacity(n);
+
+    for step in 0..n {
+        // Pivot: smallest approximate degree among live variables.
+        let mut p = usize::MAX;
+        for v in 0..n {
+            if !eliminated[v] && (p == usize::MAX || deg[v] < deg[p]) {
+                p = v;
+            }
+        }
+
+        // Lp = live neighbours of p, directly or through its adjacent elements.
+        let mut lp: Vec<usize> = adj_v[p].iter().copied().collect();
+        for &e in &adj_e[p] {
+            lp.extend(le[e].iter().copied());
+        }
+        lp.sort_unstable();
+        lp.dedup();
+        lp.retain(|&j| j != p);
+        for &j in &lp {
+            in_lp[j] = true;
+        }
+
+        // Elements adjacent to p are absorbed into the new element p.
+        let absorbed_now: Vec<usize> = adj_e[p].iter().copied().collect();
+        for &e in &absorbed_now {
+            absorbed[e] = true;
+            le[e] = Vec::new();
+        }
+
+        // Weights |L_e \ Lp| for the surviving elements touching Lp.
+        for &i in &lp {
+            adj_e[i].retain(|&e| !absorbed[e]);
+            for &e in &adj_e[i] {
+                if stamp[e] != step {
+                    stamp[e] = step;
+                    w[e] = le[e].len();
+                }
+                w[e] -= 1;
+            }
+        }
+
+        // Structural update: Lp becomes the boundary of element p.
+        for &i in &lp {
+            adj_v[i].retain(|&j| j != p && !in_lp[j]);
+            adj_e[i].insert(p);
+        }
+        le[p] = lp.clone();
+        eliminated[p] = true;
+        adj_v[p].clear();
+        adj_e[p].clear();
+
+        // Approximate external degrees of the boundary variables.
+        let remaining = n - step - 1;
+        for &i in &lp {
+            let ext: usize = adj_e[i].iter().filter(|&&e| e != p).map(|&e| w[e]).sum();
+            let bound_clique = deg[i] + lp.len() - 1;
+            let bound_elements = adj_v[i].len() + lp.len() - 1 + ext;
+            deg[i] = remaining.min(bound_clique).min(bound_elements);
+        }
+        for &j in &lp {
+            in_lp[j] = false;
+        }
+        order.push(p);
+    }
+    order
+}
+
 /// Run the symbolic analysis (ordering + exact fill) for a symmetric matrix.
 ///
 /// `triplets` may list only the upper triangle, only the lower, or both —
@@ -167,6 +258,7 @@ pub fn analyze(n: usize, triplets: &[Triplet], ordering: Ordering) -> SymbolicLd
     // Greedy minimum-degree order (or identity).
     let order: Vec<usize> = match ordering {
         Ordering::Natural => (0..n).collect(),
+        Ordering::ApproxMinDegree => approx_min_degree(n, &adj),
         Ordering::MinDegree => {
             let mut eliminated = vec![false; n];
             let mut order = Vec::with_capacity(n);
@@ -592,6 +684,61 @@ mod tests {
             let err: f64 = x.iter().zip(&expect).map(|(a, e)| (a - e).abs()).fold(0.0, f64::max);
             assert!(err < 1e-8);
         }
+    }
+
+    /// 2-D grid with unit off-diagonal couplings and diagonal dominance.
+    fn grid_triplets(side: usize) -> (usize, Vec<Triplet>) {
+        let n = side * side;
+        let mut triplets: Vec<Triplet> = (0..n).map(|i| Triplet::new(i, i, 10.0)).collect();
+        for r in 0..side {
+            for c in 0..side {
+                let v = r * side + c;
+                if c + 1 < side {
+                    triplets.push(Triplet::new(v, v + 1, -1.0));
+                }
+                if r + 1 < side {
+                    triplets.push(Triplet::new(v, v + side, -1.0));
+                }
+            }
+        }
+        (n, triplets)
+    }
+
+    #[test]
+    fn approx_min_degree_solves_and_reduces_fill_on_grid() {
+        let (n, triplets) = grid_triplets(5);
+        let nat = analyze(n, &triplets, Ordering::Natural);
+        let amd = analyze(n, &triplets, Ordering::ApproxMinDegree);
+        assert!(amd.lnz <= nat.lnz, "approx min-degree fill {} vs natural {}", amd.lnz, nat.lnz);
+
+        let mut seen = vec![false; n];
+        for &p in &amd.perm {
+            assert!(!seen[p]);
+            seen[p] = true;
+        }
+        let b: Vec<f64> = (0..n).map(|i| (i % 7) as f64).collect();
+        let dense = mat_from_triplets(n, &triplets);
+        let expect = dense_solve(&dense, &b, n);
+        let x = amd.factorize(&triplets).expect("spd").solve(&b);
+        let err: f64 = x.iter().zip(&expect).map(|(a, e)| (a - e).abs()).fold(0.0, f64::max);
+        assert!(err < 1e-8);
+    }
+
+    #[test]
+    fn approx_min_degree_fill_is_close_to_exact_min_degree_on_larger_grid() {
+        // The approximate degrees are upper bounds, so the fill may differ from the
+        // exact-degree ordering, but it must stay in the same range.
+        let (n, triplets) = grid_triplets(16);
+        let exact = analyze(n, &triplets, Ordering::MinDegree);
+        let approx = analyze(n, &triplets, Ordering::ApproxMinDegree);
+        let natural = analyze(n, &triplets, Ordering::Natural);
+        assert!(approx.lnz < natural.lnz);
+        assert!(
+            approx.lnz as f64 <= 1.5 * exact.lnz as f64,
+            "approx fill {} vs exact min-degree fill {}",
+            approx.lnz,
+            exact.lnz
+        );
     }
 
     #[test]

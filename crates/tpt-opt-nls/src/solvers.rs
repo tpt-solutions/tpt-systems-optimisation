@@ -140,7 +140,7 @@ struct SparseCache {
 
 impl SparseCache {
     fn new() -> Self {
-        Self { sym: None, ordering: Ordering::MinDegree }
+        Self { sym: None, ordering: Ordering::ApproxMinDegree }
     }
 
     /// Factor `H + λ·diag_H` (as triplets) and solve for `−g`; returns

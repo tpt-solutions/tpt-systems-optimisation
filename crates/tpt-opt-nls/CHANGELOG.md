@@ -4,6 +4,17 @@ All notable changes to `tpt-opt-nls` are documented here. This crate follows
 the workspace convention of per-crate changelogs (Keep a Changelog format),
 starting from the initial `0.1.0` scaffold.
 
+## [Unreleased]
+
+### Added
+- `Ordering::ApproxMinDegree`: quotient-graph minimum degree with approximate
+  external degrees (Amestoy–Davis–Duff). On a 70×70 grid it gives about 7% less
+  fill than the exact-degree ordering and analyses in about 60% of the time.
+
+### Changed
+- The sparse solver path now uses `Ordering::ApproxMinDegree` by default.
+  `Ordering::MinDegree` remains available.
+
 ## [0.1.0] - Unreleased
 
 ### Added

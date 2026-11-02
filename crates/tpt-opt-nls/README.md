@@ -19,7 +19,7 @@ Rust, no `unsafe`, zero external dependencies beyond `tpt-opt-core`.
   make deep graphs safe.
 * **Robust losses** — Huber, Cauchy, Tukey biweight, soft-L1 (`loss` module),
   applied as IRLS row weights re-evaluated each outer iteration.
-* **Sparse normal equations** — minimum-degree (AMD-core) fill-reducing
+* **Sparse normal equations** — approximate-degree (AMD) fill-reducing
   ordering plus exact-fill up-looking sparse `LDLᵀ` (`sparse` module), used
   automatically when `LinearSolver::Sparse` is configured. Dense Cholesky/LU
   helpers live in `dense`.

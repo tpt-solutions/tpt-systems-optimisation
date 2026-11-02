@@ -38,6 +38,14 @@ starting from the initial `0.1.0` scaffold.
 
 ## [Unreleased]
 
+### Fixed
+
+- Interior-point SOCP (`ip`): centring stalled at large barrier parameter on
+  well-posed problems and returned `MaxIterations`. The Newton-decrement test now
+  scales with `(1 + t)`, and a stalled centring step is accepted when its gap
+  bound `m/t` is at most `1e-6`. Checked by `tests/sweep_socp_grid.rs` (150
+  instances against a dense grid).
+
 ### Added
 
 - `ip` module: interior-point log-barrier SOCP solver (`solve_socp_ip`).

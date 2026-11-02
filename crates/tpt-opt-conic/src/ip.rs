@@ -36,6 +36,9 @@ const MU: f64 = 10.0;
 const NEWTON_TOL: f64 = 1e-10;
 /// Newton iterations allowed per centring step.
 const MAX_NEWTON: usize = 80;
+/// Duality-gap bound `m / t` under which a stalled centring step still counts as
+/// converged. Newton stops making progress at rounding level for very large `t`.
+const STALL_GAP: f64 = 1e-6;
 
 /// Affine map `w ↦ M w + m`, with `M` stored as rows of length `dim`.
 #[derive(Clone, Debug)]
@@ -144,7 +147,7 @@ fn centre(dom: &Domain, w: &mut Vec<f64>, t: f64, c: &[f64]) -> bool {
             return false;
         };
         let slope = dot(&g, &dx);
-        if -slope / 2.0 <= NEWTON_TOL {
+        if -slope / 2.0 <= NEWTON_TOL * (1.0 + t) {
             return true;
         }
         let psi0 = psi(dom, w, t, c);
@@ -187,10 +190,19 @@ fn barrier_method(
     let m = dom.barrier_count() as f64;
     let mut w = w0;
     let mut t = 1.0;
+    // Barrier parameter of the last centring step that succeeded.
+    let mut t_centred: Option<f64> = None;
     for _ in 0..max_outer {
         if !centre(dom, &mut w, t, c) {
-            return BarrierOutcome::Failed;
+            // Newton stalls at rounding level once `t` is very large. The iterate
+            // is still the last centred point, with duality-gap bound m / t_centred,
+            // so accept it when that bound is already small. Otherwise give up.
+            return match t_centred {
+                Some(tc) if m / tc <= STALL_GAP => BarrierOutcome::Converged(w),
+                _ => BarrierOutcome::Failed,
+            };
         }
+        t_centred = Some(t);
         if stop(&w) {
             return BarrierOutcome::Stopped(w);
         }

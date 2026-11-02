@@ -68,6 +68,7 @@ fn perf_report_fixed_instances() {
     println!("{:<18} {:>10} {:>12} {:>10}", "instance", "status", "objective", "time_ms");
     println!("{}", "-".repeat(54));
 
+    let mut records = Vec::new();
     for (name, model) in &cases {
         let mut solver = tpt_opt_milp::MilpSolver::new();
         let start = Instant::now();
@@ -75,17 +76,29 @@ fn perf_report_fixed_instances() {
         let elapsed = start.elapsed();
 
         assert_eq!(sol.status, SolverStatus::Optimal, "{name} must be optimal");
+        let time_ms = elapsed.as_secs_f64() * 1000.0;
         println!(
             "{:<18} {:>10} {:>12.4} {:>10.1}",
             name,
             format!("{:?}", sol.status),
             sol.objective_value,
-            elapsed.as_secs_f64() * 1000.0
+            time_ms
         );
+        records.push(format!(
+            "{{\"instance\":\"{name}\",\"status\":\"{:?}\",\"objective\":{},\"time_ms\":{time_ms:.3}}}",
+            sol.status, sol.objective_value
+        ));
     }
 
     println!(
         "
 (note: timings are informational only — no assertion is made on them)"
     );
+
+    // CI sets PERF_REPORT_JSON to keep the table as a per-commit artifact.
+    if let Ok(path) = std::env::var("PERF_REPORT_JSON") {
+        let commit = std::env::var("GITHUB_SHA").unwrap_or_else(|_| "local".to_string());
+        let json = format!("{{\"commit\":\"{commit}\",\"results\":[{}]}}\n", records.join(","));
+        std::fs::write(&path, json).expect("write PERF_REPORT_JSON");
+    }
 }

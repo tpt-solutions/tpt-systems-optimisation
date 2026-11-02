@@ -130,6 +130,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.85
       - run: cargo test -p tpt-opt-milp --test perf_regression -- --ignored --nocapture
+        env:
+          PERF_REPORT_JSON: perf-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-report-${{ github.sha }}
+          path: perf-report.json
+          if-no-files-found: ignore
 
   benchmark-corpus:
     # Fetch the curated Netlib/MIPLIB fixtures via xtask (outside every crate

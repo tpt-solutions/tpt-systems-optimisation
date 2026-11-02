@@ -20,16 +20,19 @@
 
 use std::vec::Vec;
 
+use tpt_opt_core::model::Sense;
 use tpt_opt_core::nlp::{NlpParams, NlpStatus};
+use tpt_opt_core::Tolerances;
 use tpt_opt_core::{
     bounds::VarBound,
     model::{Constraint, Model, Objective},
     solver::{Solver, SolverStatus},
 };
+use tpt_opt_milp::lp::{solve_lp, LpStatus};
 use tpt_opt_milp::MilpSolver;
 
 use crate::certificates::{CertificateHistory, ConvergenceCertificate};
-use crate::model::{MinlpModel, VarKind};
+use crate::model::{ConstraintKind, MinlpModel, VarKind};
 use crate::subproblem::{max_violation, solve_subproblem};
 
 /// Tolerances / limits for the GBD loop.
@@ -41,7 +44,7 @@ pub struct GbdConfig {
     pub abs_gap: f64,
     /// Relative duality-gap tolerance.
     pub rel_gap: f64,
-    /// Step used to probe neighbouring integer points for slope estimates.
+    /// Retained for API compatibility; the cuts no longer use probing.
     pub probe_step: f64,
     /// NLP subproblem parameters.
     pub nlp: NlpParams,
@@ -146,12 +149,19 @@ pub fn generalized_benders(model: &MinlpModel, cfg: &GbdConfig) -> GbdResult {
                     }
                 }
                 None => {
-                    // All integer assignments evaluated: the incumbent is
-                    // final; with valid cuts the master bound cannot exceed it.
+                    // Every integer assignment has been evaluated. A feasible one
+                    // was solved exactly, and an infeasible one has no feasible
+                    // completion, so the incumbent is optimal regardless of the
+                    // master bound. That bound may stay low, since infeasible
+                    // assignments carry no cut.
                     let gap = upper - lower;
-                    status = if upper.is_finite()
-                        && gap <= cfg.abs_gap.max(cfg.rel_gap * upper.abs().max(1.0))
-                    {
+                    let tol = cfg.abs_gap.max(cfg.rel_gap * upper.abs().max(1.0));
+                    status = if !upper.is_finite() {
+                        crate::oa::OaStatus::Infeasible
+                    } else if enumeration_complete(model, &int_idx) {
+                        lower = upper;
+                        crate::oa::OaStatus::Optimal
+                    } else if gap <= tol {
                         crate::oa::OaStatus::Optimal
                     } else {
                         crate::oa::OaStatus::MaxIterations
@@ -170,13 +180,14 @@ pub fn generalized_benders(model: &MinlpModel, cfg: &GbdConfig) -> GbdResult {
                 upper = res.objective;
                 best_x = Some(res.x.clone());
             }
-            let slope = slope_estimate(model, &int_idx, &ym, cfg, true);
-            cuts.push(optimality_cut(&ym, res.objective, &slope));
-        } else {
-            let phi = if viol < 1e-4 { 0.0 } else { viol };
-            let slope = slope_estimate(model, &int_idx, &ym, cfg, false);
-            cuts.push(feasibility_cut(&ym, phi.max(1e-8), &slope));
+            if let Some(cut) = benders_cut(model, &int_idx, &ym, &res.x) {
+                cuts.push(cut);
+            }
         }
+        // An infeasible subproblem adds no cut. A feasibility cut would need the
+        // multipliers of the min-max violation problem, and an unverified cut could
+        // exclude the optimum. Termination then comes from `diversify`, which visits
+        // every integer assignment.
         history.push(ConvergenceCertificate {
             lower_bound: lower,
             upper_bound: upper,
@@ -192,6 +203,14 @@ pub fn generalized_benders(model: &MinlpModel, cfg: &GbdConfig) -> GbdResult {
         }
     }
 
+    // A valid lower bound never exceeds a feasible incumbent. When it does, the
+    // accumulated cuts cannot be trusted, so the run is not an optimality proof.
+    if status == crate::oa::OaStatus::Optimal && upper.is_finite() {
+        let tol = cfg.abs_gap.max(cfg.rel_gap * upper.abs().max(1.0));
+        if lower > upper + tol {
+            status = crate::oa::OaStatus::NumericalIssue;
+        }
+    }
     let objective = best_x.as_ref().map(|x| model.eval_objective(x));
     GbdResult { status, x: best_x, objective, lower_bound: lower, history }
 }
@@ -225,6 +244,21 @@ fn integer_grid(model: &MinlpModel, int_idx: &[usize]) -> Vec<Vec<i64>> {
     grid
 }
 
+/// `true` when [`integer_grid`] lists every integer assignment, i.e. its size is
+/// within the cap it applies.
+fn enumeration_complete(model: &MinlpModel, int_idx: &[usize]) -> bool {
+    let mut size: usize = 1;
+    for &i in int_idx {
+        let lo = model.lbs[i].ceil() as i64;
+        let hi = model.ubs[i].floor() as i64;
+        let count = (hi - lo + 1).max(0) as usize;
+        size = size.saturating_mul(count);
+        if size > 50_000 {
+            return false;
+        }
+    }
+    true
+}
 /// Master-model estimate of `θ` at an integer assignment: the largest
 /// optimality-cut lower bound, or +∞ when a feasibility cut is violated.
 fn cut_estimate(cuts: &[MasterCut], n: usize, int_idx: &[usize], assign: &[i64]) -> f64 {
@@ -269,75 +303,6 @@ fn diversify(
     best.map(|(_, pt)| pt)
 }
 
-/// Probe neighbouring integer assignments to estimate a slope vector over
-/// the complicating variables. When `value_mode` is true the probed scalar
-/// is the subproblem value `v` (only defined at feasible points — probes
-/// that are infeasible yield a zero slope component); otherwise it is the
-/// violation measure `φ`. Each slope component is kept only if the resulting
-/// linear extrapolation does not exceed the probed values (within slack) at
-/// both probes; otherwise that component falls back to zero (flat cut).
-fn slope_estimate(
-    model: &MinlpModel,
-    int_idx: &[usize],
-    yk: &[f64],
-    cfg: &GbdConfig,
-    value_mode: bool,
-) -> Vec<f64> {
-    let n = model.num_vars();
-    let base = probe_value(model, yk, value_mode);
-    let mut slope = vec![0.0f64; n];
-    for &i in int_idx {
-        let h = cfg.probe_step.min((model.ubs[i] - model.lbs[i]) * 0.5);
-        if h <= 1e-9 {
-            continue;
-        }
-        let mut yp = yk.to_vec();
-        let mut ym_ = yk.to_vec();
-        yp[i] = (yk[i] + h).clamp(model.lbs[i], model.ubs[i]);
-        ym_[i] = (yk[i] - h).clamp(model.lbs[i], model.ubs[i]);
-        let vp = probe_value(model, &yp, value_mode);
-        let vm = probe_value(model, &ym_, value_mode);
-        let hp = yp[i] - yk[i];
-        let hm = yk[i] - ym_[i];
-        // Both probes must actually move: when one side is clamped against
-        // a bound the "central" difference degenerates to a one-sided
-        // estimate whose extrapolation validity is untested, and the
-        // resulting cut can exclude the true optimum.
-        if hp <= 1e-9 || hm <= 1e-9 || !base.is_finite() || !vp.is_finite() || !vm.is_finite() {
-            continue;
-        }
-        let denom = hp + hm;
-        let s = (vp - vm) / denom;
-        if !s.is_finite() {
-            continue;
-        }
-        // Validity: the linear model must underestimate both probes.
-        let ok_p = vp >= base + s * hp - 1e-6;
-        let ok_m = vm >= base - s * hm - 1e-6;
-        if ok_p && ok_m {
-            slope[i] = s;
-        }
-    }
-    slope
-}
-
-/// Evaluate the probed scalar at an integer assignment: `v(y)` when
-/// feasible (else NaN), or the violation measure `φ(y)`.
-fn probe_value(model: &MinlpModel, y: &[f64], value_mode: bool) -> f64 {
-    let params = NlpParams { max_outer: 25, ..NlpParams::default() };
-    let res = solve_subproblem(model, y, &params);
-    let viol = max_violation(model, y, &res.x);
-    if value_mode {
-        if viol < 1e-4 && res.status == NlpStatus::Converged {
-            res.objective
-        } else {
-            f64::NAN
-        }
-    } else {
-        viol
-    }
-}
-
 /// Optimality cut: `θ >= v_k + s·(y − y_k)`.
 fn optimality_cut(yk: &[f64], vk: f64, slope: &[f64]) -> MasterCut {
     let n = yk.len();
@@ -351,19 +316,145 @@ fn optimality_cut(yk: &[f64], vk: f64, slope: &[f64]) -> MasterCut {
     MasterCut { coefs, rhs, ge: true }
 }
 
-/// Feasibility cut: `s·y <= s·y_k − φ_k` (drives the master away from
-/// integer assignments whose subproblem violates constraints).
-fn feasibility_cut(yk: &[f64], phi: f64, slope: &[f64]) -> MasterCut {
-    let n = yk.len();
-    let mut coefs = vec![0.0f64; n];
-    let mut rhs = -phi;
-    for i in 0..n {
-        coefs[i] = slope[i];
-        rhs += slope[i] * yk[i];
-    }
-    MasterCut { coefs, rhs, ge: false }
+/// KKT multipliers of the continuous subproblem at a point, certified by the
+/// stationarity residual of the multiplier LP.
+struct Multipliers {
+    /// `(constraint index, λ)` for each active `Le` constraint, `λ ≥ 0`.
+    ineq: Vec<(usize, f64)>,
+    /// `(constraint index, μ)` for each `Eq` constraint, sign free.
+    eq: Vec<(usize, f64)>,
+    /// Worst stationarity residual of the multiplier LP; zero when the
+    /// multipliers satisfy the KKT conditions exactly.
+    residual: f64,
 }
 
+/// Recover KKT multipliers for the subproblem in its continuous variables at
+/// the full point `x` (integers already fixed). Solves
+/// `∇f + Σλ∇g + Σμ∇h − ν_lo + ν_hi = 0` over the continuous components, with
+/// `λ, ν ≥ 0` on active constraints and bounds, by least-`ℓ₁` residual LP.
+fn kkt_multipliers(model: &MinlpModel, x: &[f64]) -> Option<Multipliers> {
+    let n = model.num_vars();
+    let cidx: Vec<usize> = (0..n).filter(|&i| model.vars[i] == VarKind::Continuous).collect();
+    let nb = cidx.len();
+
+    let mut ineq = Vec::new();
+    let mut eq = Vec::new();
+    for (ci, c) in model.constraints.iter().enumerate() {
+        if !model.is_active(ci, x) {
+            continue;
+        }
+        match c.kind {
+            ConstraintKind::Le if model.eval_constraint(ci, x) >= -1e-6 => ineq.push(ci),
+            ConstraintKind::Le => {}
+            ConstraintKind::Eq => eq.push(ci),
+        }
+    }
+    let restrict = |g: Vec<f64>| -> Vec<f64> { cidx.iter().map(|&i| g[i]).collect() };
+    let grad_ineq: Vec<Vec<f64>> =
+        ineq.iter().map(|&ci| restrict(model.eval_constraint_grad(ci, x))).collect();
+    let grad_eq: Vec<Vec<f64>> =
+        eq.iter().map(|&ci| restrict(model.eval_constraint_grad(ci, x))).collect();
+    let grad_f = restrict(model.eval_objective_grad(x));
+    let lo_active: Vec<bool> = cidx.iter().map(|&i| x[i] - model.lbs[i] <= 1e-7).collect();
+    let hi_active: Vec<bool> = cidx.iter().map(|&i| model.ubs[i] - x[i] <= 1e-7).collect();
+
+    // Columns: λ, μ⁺, μ⁻, ν_lo, ν_hi, r⁺, r⁻ (all ≥ 0).
+    let mut lp = Model::new(0);
+    let lam: Vec<usize> =
+        ineq.iter().map(|_| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))).collect();
+    let mu_p: Vec<usize> =
+        eq.iter().map(|_| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))).collect();
+    let mu_m: Vec<usize> =
+        eq.iter().map(|_| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))).collect();
+    let nu_lo: Vec<Option<usize>> = (0..nb)
+        .map(|j| lo_active[j].then(|| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))))
+        .collect();
+    let nu_hi: Vec<Option<usize>> = (0..nb)
+        .map(|j| hi_active[j].then(|| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))))
+        .collect();
+    let r_p: Vec<usize> =
+        (0..nb).map(|_| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))).collect();
+    let r_m: Vec<usize> =
+        (0..nb).map(|_| lp.add_variable(VarBound::continuous(0.0, f64::INFINITY))).collect();
+
+    // Stationarity row per continuous component: Σ coef·var + r⁺ − r⁻ = −∇f.
+    for j in 0..nb {
+        let mut idx = Vec::new();
+        let mut co = Vec::new();
+        for (k, &v) in lam.iter().enumerate() {
+            idx.push(v);
+            co.push(grad_ineq[k][j]);
+        }
+        for (k, _) in eq.iter().enumerate() {
+            idx.push(mu_p[k]);
+            co.push(grad_eq[k][j]);
+            idx.push(mu_m[k]);
+            co.push(-grad_eq[k][j]);
+        }
+        if let Some(v) = nu_lo[j] {
+            idx.push(v);
+            co.push(-1.0);
+        }
+        if let Some(v) = nu_hi[j] {
+            idx.push(v);
+            co.push(1.0);
+        }
+        idx.push(r_p[j]);
+        co.push(1.0);
+        idx.push(r_m[j]);
+        co.push(-1.0);
+        lp.add_constraint(Constraint::equality(idx, co, -grad_f[j]));
+    }
+    let mut oidx = Vec::new();
+    for j in 0..nb {
+        oidx.push(r_p[j]);
+        oidx.push(r_m[j]);
+    }
+    let ocoeffs = vec![1.0; oidx.len()];
+    lp.set_objective(Objective {
+        sense: Sense::Minimize,
+        indices: oidx,
+        coeffs: ocoeffs,
+        constant: 0.0,
+    });
+
+    let nv = lp.num_vars;
+    let sol = solve_lp(&lp, &vec![0.0; nv], &vec![f64::INFINITY; nv], Tolerances::spec_default());
+    if sol.status != LpStatus::Optimal {
+        return None;
+    }
+    let x_lp = &sol.x;
+    Some(Multipliers {
+        ineq: ineq.iter().zip(&lam).map(|(&ci, &v)| (ci, x_lp[v])).collect(),
+        eq: eq.iter().enumerate().map(|(k, &ci)| (ci, x_lp[mu_p[k]] - x_lp[mu_m[k]])).collect(),
+        residual: sol.objective.max(0.0),
+    })
+}
+
+/// Benders optimality cut at `yk` from the subproblem's KKT multipliers:
+/// `θ ≥ v(y_k) + ∇_y L(x_k, y_k)·(y − y_k)` with `L = f + Σλg + Σμh`. For a
+/// convex problem `L(·, y)` lower-bounds the value function, so the cut is valid
+/// for every integer `y`. Returns `None` when the multipliers do not certify
+/// stationarity.
+fn benders_cut(model: &MinlpModel, int_idx: &[usize], yk: &[f64], xk: &[f64]) -> Option<MasterCut> {
+    let mult = kkt_multipliers(model, xk)?;
+    if mult.residual > 1e-6 {
+        return None;
+    }
+    let n = model.num_vars();
+    let mut grad = model.eval_objective_grad(xk);
+    for &(ci, l) in mult.ineq.iter().chain(&mult.eq) {
+        let g = model.eval_constraint_grad(ci, xk);
+        for i in 0..n {
+            grad[i] += l * g[i];
+        }
+    }
+    let mut slope = vec![0.0f64; n];
+    for &i in int_idx {
+        slope[i] = grad[i];
+    }
+    Some(optimality_cut(yk, model.eval_objective(xk), &slope))
+}
 /// Build and solve the GBD master: variables `y_0..y_{n-1}` (only the
 /// complicating ones are free; continuous placeholders fixed at 0) plus `θ`.
 fn solve_master(model: &MinlpModel, cuts: &[MasterCut]) -> Option<tpt_opt_core::solver::Solution> {

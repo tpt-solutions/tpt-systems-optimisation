@@ -4,6 +4,24 @@ All notable changes to `tpt-opt-minlp` are documented here. This crate follows
 the workspace convention of per-crate changelogs (Keep a Changelog format),
 starting from the initial `0.1.0`.
 
+## [Unreleased]
+
+### Changed
+- `generalized_benders` optimality cuts now come from the KKT multipliers of the
+  continuous subproblem (recovered by a least-residual LP and certified by its
+  residual), giving `θ ≥ f(x_k,y_k) + ∇_y(f + Σλg + Σμh)·(y − y_k)`. The previous
+  finite-difference cuts were not valid and could cut off the optimum. Infeasible
+  subproblems add no cut and are enumerated instead, and an exhausted integer
+  enumeration proves optimality. The cut's validity argument covers convex problems
+  only.
+- `generalized_benders` reports `NumericalIssue` rather than `Optimal` when its lower
+  bound exceeds the incumbent. `GbdConfig::probe_step` is retained for API
+  compatibility and no longer affects the cuts.
+
+### Added
+- `tests/sweep_convex_minlp.rs`: convex MINLP instances against enumeration, with
+  OA, GBD and SQP-B&B all required to reach the optimum.
+
 ## [0.1.0] - Unreleased
 
 ### Added

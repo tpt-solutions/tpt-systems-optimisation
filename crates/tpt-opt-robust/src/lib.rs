@@ -75,3 +75,21 @@ pub use scenario::{
     multi_stage_model, solve_two_stage, Scenario, StageData, TwoStageProblem, TwoStageSolution,
 };
 pub use value::{evpi, vss, ValueMetrics};
+
+/// Accept only an optimal solution. Any other status becomes an error, so no
+/// caller reads primal values from an infeasible or unbounded solve.
+pub(crate) fn require_optimal(
+    sol: tpt_opt_core::Solution,
+) -> Result<tpt_opt_core::Solution, tpt_opt_core::OptError> {
+    use tpt_opt_core::{InfeasibilityReport, OptError, SolverStatus};
+    match sol.status {
+        SolverStatus::Optimal => Ok(sol),
+        SolverStatus::Infeasible => {
+            Err(OptError::infeasible(InfeasibilityReport::new("robust model is infeasible")))
+        }
+        SolverStatus::Unbounded => Err(OptError::Unbounded),
+        other => {
+            Err(OptError::numerical(format!("robust model did not solve to optimality: {other:?}")))
+        }
+    }
+}

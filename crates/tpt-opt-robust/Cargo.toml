@@ -24,3 +24,6 @@ documentation = "https://docs.rs/tpt-opt-robust"
 [features]
 default = ["std"]
 std = []
+
+[dev-dependencies]
+tpt-opt-decompose = { workspace = true }

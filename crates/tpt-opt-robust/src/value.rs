@@ -90,7 +90,7 @@ fn solve_fixed_scenario(problem: &TwoStageProblem, s: usize) -> Result<f64, OptE
         model.add_constraint(con);
     }
     let mut solver = MilpSolver::new();
-    let sol = solver.solve(&model)?;
+    let sol = crate::require_optimal(solver.solve(&model)?)?;
     debug_assert_eq!(sol.status, SolverStatus::Optimal);
     Ok(sol.objective_value)
 }
@@ -134,7 +134,7 @@ fn expected_cost_of(problem: &TwoStageProblem, x: &[f64]) -> Result<f64, OptErro
             model.add_constraint(con);
         }
         let mut solver = MilpSolver::new();
-        let sol = solver.solve(&model)?;
+        let sol = crate::require_optimal(solver.solve(&model)?)?;
         total += (scen.probability / total_p) * sol.objective_value;
     }
     Ok(total)

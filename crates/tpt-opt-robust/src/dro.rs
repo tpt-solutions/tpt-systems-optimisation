@@ -168,7 +168,7 @@ where
                 model.add_constraint(Constraint::le(idx, co, rhs));
             }
             let mut solver = MilpSolver::new();
-            let sol = solver.solve(&model)?;
+            let sol = crate::require_optimal(solver.solve(&model)?)?;
             x_best = sol.primal[..n].to_vec();
 
             // Worst-case p at the new x (greedy on current costs).

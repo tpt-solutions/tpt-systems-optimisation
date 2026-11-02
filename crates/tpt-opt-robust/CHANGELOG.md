@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Every solve in the crate now checks the solver status (`require_optimal`). Before,
+  `TwoStageProblem::solve`, the SAA, DRO, chance and value-of-information solves read
+  primal values from infeasible or unbounded solves. An infeasible problem now returns
+  an error. Regression: `tests/sweep_two_stage.rs` (also checked against Benders on 300
+  random two-stage instances).
+
 ### Added
 
 - Scenario-based stochastic programming: two-stage extensive form

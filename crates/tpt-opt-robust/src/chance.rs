@@ -202,6 +202,6 @@ pub fn scenario_chance_model(
         allowed as f64,
     ));
     let mut solver = MilpSolver::new();
-    let sol = solver.solve(&model)?;
+    let sol = crate::require_optimal(solver.solve(&model)?)?;
     Ok(sol.primal[..n].to_vec())
 }

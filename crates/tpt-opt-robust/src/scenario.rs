@@ -167,7 +167,7 @@ impl TwoStageProblem {
     pub fn solve(&self) -> Result<TwoStageSolution, OptError> {
         let model = self.extensive_form();
         let mut solver = MilpSolver::new();
-        let sol = solver.solve(&model)?;
+        let sol = crate::require_optimal(solver.solve(&model)?)?;
         let n1 = self.first_bounds.len();
         let n2 = self.second_bounds.len();
         let recourse: Vec<Vec<f64>> = (0..self.scenarios.len())

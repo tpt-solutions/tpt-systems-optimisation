@@ -16,16 +16,12 @@ use tpt_opt_core::{OptError, Sense};
 struct Col {
     /// Phase-II (real objective) cost of this column.
     phase2: f64,
-    /// `true` for the artificial variables used to find an initial basis.
-    artificial: bool,
 }
 
 /// A single standard-form row before tabulation.
 struct RowSpec {
     coeffs: Vec<(usize, f64)>,
     rhs: f64,
-    /// Column that is basic in this row in the initial canonical basis.
-    basic: usize,
 }
 
 /// Result of converting a [`Model`] into standard form.
@@ -59,36 +55,46 @@ impl LpSolver {
     /// Solve a pre-built standard form, returning the primal and objective.
     fn solve_standard(&mut self, sf: &StandardForm) -> Result<Solution, OptError> {
         let m = sf.rows.len();
-        let ncols = sf.cols.len();
-        let rhs = ncols;
+        let n0 = sf.cols.len();
 
-        if m == 0 || ncols == 0 {
+        if m == 0 || n0 == 0 {
             // Degenerate: nothing to solve.
             let primal = vec![0.0; sf.orig_expr.len()];
             return Ok(Solution::new(primal, sf.obj_const, SolverStatus::Optimal));
         }
 
-        // Build the tableau.
+        // One artificial column per row, appended after the structural columns.
+        // Every row is made non-negative first, so the all-artificial starting
+        // basis is always feasible whatever the signs of the right-hand sides.
+        let ncols = n0 + m;
+        let rhs = ncols;
         let mut tab: Vec<Vec<f64>> = vec![vec![0.0; ncols + 1]; m];
         let mut basis: Vec<usize> = vec![0; m];
         for (i, row) in sf.rows.iter().enumerate() {
+            let flip = if row.rhs < 0.0 { -1.0 } else { 1.0 };
+            // Accumulate: a column may appear more than once in a row.
             for &(c, v) in &row.coeffs {
-                tab[i][c] = v;
+                tab[i][c] += flip * v;
             }
-            tab[i][rhs] = row.rhs;
-            basis[i] = row.basic;
+            tab[i][n0 + i] = 1.0;
+            tab[i][rhs] = flip * row.rhs;
+            basis[i] = n0 + i;
         }
 
         let eps = self.params.tolerances.feasibility.max(1e-9);
+        let is_artificial: Vec<bool> = (0..ncols).map(|j| j >= n0).collect();
         let mut c1 = vec![0.0f64; ncols];
+        for c in c1.iter_mut().skip(n0) {
+            *c = 1.0;
+        }
         let mut c2 = vec![0.0f64; ncols];
         for (j, col) in sf.cols.iter().enumerate() {
-            c1[j] = if col.artificial { 1.0 } else { 0.0 };
             c2[j] = col.phase2;
         }
 
-        // Phase I.
-        let phase1 = run_simplex(&mut tab, &mut basis, &c1, m, ncols, eps);
+        // Phase I: drive the artificials to zero.
+        let all_cols = vec![true; ncols];
+        let phase1 = run_simplex(&mut tab, &mut basis, &c1, eps, &is_artificial, &all_cols);
         if phase1 != SolverStatus::Optimal {
             self.status = phase1;
             return Err(OptError::numerical("phase I did not terminate"));
@@ -101,34 +107,19 @@ impl LpSolver {
             )));
         }
 
-        // Try to pivot remaining basic artificials out of the basis.
+        // Pivot any artificial still basic (at zero) out of the basis where a
+        // structural column can replace it. Rows where none can are redundant.
         for i in 0..m {
-            if sf.cols[basis[i]].artificial {
-                if tab[i][rhs] > eps {
-                    self.status = SolverStatus::Infeasible;
-                    return Err(OptError::infeasible(tpt_opt_core::InfeasibilityReport::new(
-                        "LP is infeasible (artificial remains basic at positive level)",
-                    )));
-                }
-                // Find a non-artificial non-basic column to pivot in.
-                let mut found = None;
-                for j in 0..ncols {
-                    if sf.cols[j].artificial {
-                        continue;
-                    }
-                    if tab[i][j].abs() > eps {
-                        found = Some(j);
-                        break;
-                    }
-                }
-                if let Some(j) = found {
+            if is_artificial[basis[i]] {
+                if let Some(j) = (0..n0).find(|&j| tab[i][j].abs() > eps) {
                     pivot(&mut tab, &mut basis, i, j, m, ncols);
                 }
             }
         }
 
-        // Phase II.
-        let phase2 = run_simplex(&mut tab, &mut basis, &c2, m, ncols, eps);
+        // Phase II: artificials may not re-enter the basis.
+        let real_cols: Vec<bool> = (0..ncols).map(|j| j < n0).collect();
+        let phase2 = run_simplex(&mut tab, &mut basis, &c2, eps, &is_artificial, &real_cols);
         self.status = phase2;
         if phase2 == SolverStatus::Unbounded {
             return Err(OptError::Unbounded);
@@ -161,8 +152,7 @@ impl LpSolver {
         let tableau_obj = objective_value(&tab, &basis, &c2, m, ncols);
         let obj = sf.sign * tableau_obj + sf.obj_const;
 
-        let sol = Solution::new(primal, obj, SolverStatus::Optimal);
-        Ok(sol)
+        Ok(Solution::new(primal, obj, SolverStatus::Optimal))
     }
 }
 
@@ -235,28 +225,28 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
 
         if lb_finite && ub_finite {
             let y = cols.len();
-            cols.push(Col { phase2, artificial: false });
+            cols.push(Col { phase2 });
             orig_expr.push((lb, vec![(y, 1.0)]));
             obj_const += c * lb;
             let span = ub - lb;
             bound_rows.push((vec![(y, 1.0)], span));
         } else if lb_finite && !ub_finite {
             let y = cols.len();
-            cols.push(Col { phase2, artificial: false });
+            cols.push(Col { phase2 });
             orig_expr.push((lb, vec![(y, 1.0)]));
             obj_const += c * lb;
         } else if !lb_finite && ub_finite {
             let yp = cols.len();
-            cols.push(Col { phase2, artificial: false });
+            cols.push(Col { phase2 });
             let ym = cols.len();
-            cols.push(Col { phase2: -phase2, artificial: false });
+            cols.push(Col { phase2: -phase2 });
             bound_rows.push((vec![(yp, 1.0), (ym, -1.0)], ub));
             orig_expr.push((0.0, vec![(yp, 1.0), (ym, -1.0)]));
         } else {
             let yp = cols.len();
-            cols.push(Col { phase2, artificial: false });
+            cols.push(Col { phase2 });
             let ym = cols.len();
-            cols.push(Col { phase2: -phase2, artificial: false });
+            cols.push(Col { phase2: -phase2 });
             orig_expr.push((0.0, vec![(yp, 1.0), (ym, -1.0)]));
         }
     }
@@ -266,11 +256,11 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
     // Variable bound rows (all are <= constraints with a slack basic var).
     for (coeffs, rhs) in &bound_rows {
         let mut c = coeffs.clone();
-        cols.push(Col { phase2: 0.0, artificial: false });
+        cols.push(Col { phase2: 0.0 });
         // slack appears in the deps graph but we register it as a new column.
         let slack = cols.len() - 1;
         c.push((slack, 1.0));
-        rows.push(RowSpec { coeffs: c, rhs: *rhs, basic: slack });
+        rows.push(RowSpec { coeffs: c, rhs: *rhs });
     }
 
     // Model constraints.
@@ -297,28 +287,30 @@ fn to_standard_form(model: &Model) -> Result<StandardForm, OptError> {
         let lo_finite = lo.is_finite();
         let hi_finite = hi.is_finite();
 
+        // An equality is one row with no surplus or slack column: a surplus would
+        // be free to grow in phase II and quietly turn `=` into `>=`.
+        let equality = lo_finite && hi_finite && (hi - lo).abs() <= 1e-12;
+        if equality {
+            rows.push(RowSpec { coeffs: base.clone(), rhs: lo - const_term });
+            continue;
+        }
+
         if lo_finite {
-            // >= lo : A x - s + a = (lo - const), surplus s and artificial a.
+            // >= lo : A x - s = (lo - const), surplus s >= 0.
             let mut c = base.clone();
             let surplus = cols.len();
-            cols.push(Col { phase2: 0.0, artificial: false });
+            cols.push(Col { phase2: 0.0 });
             c.push((surplus, -1.0));
-            let artificial = cols.len();
-            cols.push(Col { phase2: 0.0, artificial: true });
-            c.push((artificial, 1.0));
-            rows.push(RowSpec { coeffs: c, rhs: lo - const_term, basic: artificial });
+            rows.push(RowSpec { coeffs: c, rhs: lo - const_term });
         }
 
         if hi_finite {
-            let equality = lo_finite && (hi - lo).abs() <= 1e-12;
-            if !equality {
-                // <= hi : A x + s = (hi - const), slack s basic.
-                let mut c = base.clone();
-                let slack = cols.len();
-                cols.push(Col { phase2: 0.0, artificial: false });
-                c.push((slack, 1.0));
-                rows.push(RowSpec { coeffs: c, rhs: hi - const_term, basic: slack });
-            }
+            // <= hi : A x + s = (hi - const), slack s >= 0.
+            let mut c = base.clone();
+            let slack = cols.len();
+            cols.push(Col { phase2: 0.0 });
+            c.push((slack, 1.0));
+            rows.push(RowSpec { coeffs: c, rhs: hi - const_term });
         }
     }
 
@@ -397,26 +389,43 @@ fn run_simplex(
     tab: &mut [Vec<f64>],
     basis: &mut [usize],
     c: &[f64],
-    m: usize,
-    ncols: usize,
     eps: f64,
+    artificial: &[bool],
+    can_enter: &[bool],
 ) -> SolverStatus {
+    let m = tab.len();
+    let ncols = can_enter.len();
     let rhs = ncols;
     for _iter in 0..(10_000 * (m + ncols) + 1000) {
         let r = reduced_costs(tab, basis, c, m, ncols);
-        // Entering: smallest index with negative reduced cost (Bland).
-        let enter = match r.iter().position(|&rc| rc < -eps) {
-            Some(j) => j,
-            None => return SolverStatus::Optimal,
-        };
+        // Entering: smallest eligible column with negative reduced cost (Bland).
+        // Only real columns may enter; the right-hand-side entry at `ncols` must
+        // never become a basis index.
+        let enter =
+            match r[..ncols].iter().enumerate().position(|(j, &rc)| can_enter[j] && rc < -eps) {
+                Some(j) => j,
+                None => return SolverStatus::Optimal,
+            };
 
         // Ratio test.
         let mut leave = None;
         let mut best = f64::INFINITY;
         for i in 0..m {
             let a = tab[i][enter];
-            if a > eps {
-                let ratio = tab[i][rhs] / a;
+            // A basic artificial at value zero must leave on any nonzero entry,
+            // whatever its sign: pivoting there leaves every value unchanged, but
+            // ignoring a negative entry would let the artificial grow and break
+            // an original constraint.
+            let degenerate_artificial =
+                artificial[basis[i]] && tab[i][rhs].abs() <= eps && a.abs() > eps;
+            let ratio = if degenerate_artificial {
+                Some(0.0)
+            } else if a > eps {
+                Some(tab[i][rhs] / a)
+            } else {
+                None
+            };
+            if let Some(ratio) = ratio {
                 let better = ratio < best - eps
                     || ((ratio - best).abs() <= eps && leave.is_some_and(|l| basis[i] < basis[l]));
                 if better {

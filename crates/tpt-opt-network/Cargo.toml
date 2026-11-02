@@ -20,3 +20,6 @@ documentation = "https://docs.rs/tpt-opt-network"
 [features]
 default = ["std"]
 std = []
+
+[dev-dependencies]
+tpt-opt-milp = { workspace = true }

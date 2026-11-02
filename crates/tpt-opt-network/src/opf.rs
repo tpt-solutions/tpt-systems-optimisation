@@ -13,6 +13,11 @@
 //! - [`sc_opf`] — security-constrained OPF: the base-case DC-OPF plus an N-1
 //!   contingency check that re-solves a DC-OPF with each line outaged and
 //!   reports whether a feasible dispatch exists for every single contingency.
+//!   This is a conservative check, not a joint optimisation.
+//! - [`sc_opf_preventive`] — co-optimised preventive SC-OPF: one LP whose single
+//!   dispatch must be feasible for the intact network and for every line outage,
+//!   so the returned dispatch is the cheapest one that is N-1 secure without
+//!   corrective action.
 //!
 //! All numerical failures surface as [`tpt_opt_core::solver::SolverStatus::Error`]
 //! / [`tpt_opt_core::solver::SolverStatus::Infeasible`] rather than silently

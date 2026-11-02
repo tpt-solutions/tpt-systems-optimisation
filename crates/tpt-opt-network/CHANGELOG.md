@@ -4,6 +4,25 @@ All notable changes to `tpt-opt-network` are documented here. This crate follows
 the workspace convention of per-crate changelogs (Keep a Changelog format),
 starting from the initial `0.1.0` scaffold.
 
+## [Unreleased]
+
+### Added
+- `sc_opf_preventive`: co-optimised preventive SC-OPF as one LP. A single dispatch
+  must be feasible for the intact network and for every line outage.
+
+### Fixed
+- Simplex: the entering-column search could select the right-hand-side column,
+  which panicked on any infeasible LP. It now returns `Infeasible`.
+- Simplex: artificial columns could re-enter in phase II, and a zero-valued
+  basic artificial was ignored by the ratio test when its entry was negative.
+  Both could return a point that breaks an equality (a wrong optimum).
+- Simplex: equality rows were built with a surplus column that could grow, so
+  `=` silently became `>=`. Equality rows now have no surplus.
+- Simplex: rows with negative right-hand sides now start from a valid
+  all-artificial basis.
+- `dc_opf` and `sc_opf_preventive` report the solver's `Infeasible` status instead
+  of `Error`.
+
 ## [0.1.0] - Unreleased
 
 ### Added

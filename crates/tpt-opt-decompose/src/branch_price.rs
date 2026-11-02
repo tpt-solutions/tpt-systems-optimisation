@@ -138,8 +138,11 @@ pub struct BpResult {
     /// Pricing rounds performed during column generation.
     pub pricing_rounds: usize,
     /// [`SolverStatus::Optimal`] when the integer master was solved to
-    /// proven optimality over the pool; [`SolverStatus::Infeasible`] when
-    /// the coupling demand cannot be met by any generated column.
+    /// proven optimality over the pool. The objective is always achieved by a
+    /// feasible integer solution, but it may be worse than the true optimum,
+    /// because the optimal combination can use columns the pool never generated.
+    /// [`SolverStatus::Infeasible`] is returned only when the LP relaxation is
+    /// infeasible; an infeasible integer master over the pool is an error.
     pub status: SolverStatus,
 }
 
@@ -406,6 +409,14 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             }
         }
         let sol = MilpSolver::new().solve(&model)?;
+        // The LP master was feasible, so an infeasible integer master means the
+        // generated pool lacks the needed integer columns. That says nothing about
+        // the full problem, so report it as an error rather than as infeasibility.
+        if sol.status == SolverStatus::Infeasible {
+            return Err(OptError::invalid_model(
+                "integer master infeasible over the generated columns; the problem may still be feasible (a full branch-and-price is required)",
+            ));
+        }
         let status = sol.status;
         let mut points = vec![Vec::new(); k_count];
         if status == SolverStatus::Optimal {

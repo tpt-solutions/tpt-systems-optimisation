@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `branch_price`: an infeasible integer master over the generated columns is
+  now an error, not `SolverStatus::Infeasible`. The LP master was feasible, so
+  the full problem may still be feasible. The integer master is solved only over
+  the generated columns, so an `Optimal` result is not necessarily the optimum
+  of the full problem. Documented on `BpResult`; a full branch-and-price remains
+  future work.
+
+### Fixed
+- Dual values of the LP engine used by column generation (`tpt-opt-milp`) were
+  wrong, so Dantzig–Wolfe could stop before optimality. Fixed upstream; the
+  Dantzig–Wolfe sweep agrees with the monolithic LP on 400 random instances.
+
 ### Added
 
 - Benders decomposition (`BendersSolver`) for two-stage problems with

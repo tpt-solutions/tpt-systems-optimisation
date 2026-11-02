@@ -41,6 +41,11 @@ impl LinearMultiObjective {
         Self { objectives, bounds }
     }
 
+    /// Per-variable `(lower, upper)` bounds.
+    pub fn bounds(&self) -> &[(f64, f64)] {
+        &self.bounds
+    }
+
     /// Number of decision variables.
     pub fn num_vars(&self) -> usize {
         self.bounds.len()

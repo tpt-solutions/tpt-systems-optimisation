@@ -39,6 +39,20 @@ fn constraint_eval_and_slack() {
 }
 
 #[test]
+fn one_sided_slack_is_positive_when_satisfied() {
+    // x0 + x1 <= 4 at (1, 0) holds with margin 3; at (3, 3) it is violated by 2.
+    let le = Constraint::le(vec![0, 1], vec![1.0, 1.0], 4.0);
+    assert!(le.is_satisfied(&[1.0, 0.0], 1e-9));
+    assert!((le.slack(&[1.0, 0.0]) - 3.0).abs() < 1e-12);
+    assert!((le.slack(&[3.0, 3.0]) + 2.0).abs() < 1e-12);
+
+    // x0 + x1 >= 1 at (1, 0) holds with margin 0; at (0, 0) it is violated by 1.
+    let ge = Constraint::ge(vec![0, 1], vec![1.0, 1.0], 1.0);
+    assert!(ge.slack(&[2.0, 0.0]) > 0.0);
+    assert!((ge.slack(&[0.0, 0.0]) + 1.0).abs() < 1e-12);
+}
+
+#[test]
 fn bound_feasibility() {
     let b = VarBound::binary();
     assert!(b.is_integral());

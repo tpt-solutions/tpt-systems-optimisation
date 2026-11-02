@@ -120,18 +120,21 @@ impl Constraint {
         lhs >= self.lower - tol && lhs <= self.upper + tol
     }
 
-    /// Slack of the constraint at `x`: negative means violated.
+    /// Slack of the constraint at `x`: the distance from the left-hand side to
+    /// the nearest finite side. It is non-negative when the constraint holds and
+    /// negative when it is violated, by the amount of the violated side. An
+    /// equality gives `0` when satisfied, and a constraint with no finite side is
+    /// never violated, so its slack is `+∞`.
     pub fn slack(&self, x: &[f64]) -> f64 {
         let lhs = self.eval(x);
-        let above = lhs - self.upper;
-        let below = self.lower - lhs;
-        if above > 0.0 {
-            -above
-        } else if below > 0.0 {
-            -below
-        } else {
-            above.max(below)
+        let mut slack = f64::INFINITY;
+        if self.upper.is_finite() {
+            slack = slack.min(self.upper - lhs);
         }
+        if self.lower.is_finite() {
+            slack = slack.min(lhs - self.lower);
+        }
+        slack
     }
 }
 

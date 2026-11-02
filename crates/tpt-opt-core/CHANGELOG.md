@@ -5,6 +5,14 @@ All notable changes to this crate are documented here, per
 semantic versioning; the initial `0.1.0` baseline is pre-1.0 and may have
 breaking changes between minor versions.
 
+## [Unreleased]
+
+### Changed
+- `Constraint::slack` returns the distance to the nearest finite side: positive
+  when the constraint holds, negative when violated. Previously a satisfied
+  one-sided constraint could report a negative slack, which made the
+  `tpt-opt-heuristic` penalty penalise feasible points.
+
 ## [0.1.0] - Unreleased
 
 ### Added

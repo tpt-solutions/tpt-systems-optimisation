@@ -117,7 +117,7 @@ fn monolithic(p: &DwProblem) -> Option<f64> {
 #[test]
 fn branch_and_price_is_sound_on_integer_blocks() {
     let mut rng = Lcg(51);
-    let (mut feasible, mut exact, mut pool_errors) = (0, 0, 0);
+    let (mut feasible, mut exact, mut pool_errors, mut proven) = (0, 0, 0, 0);
     for case in 0..300 {
         let problem = random_problem(&mut rng);
         let reference = monolithic(&problem);
@@ -162,6 +162,19 @@ fn branch_and_price_is_sound_on_integer_blocks() {
                 if (res.objective - best).abs() < 1e-6 {
                     exact += 1;
                 }
+                // The root bound must never exceed the true optimum, and a gap of
+                // zero must certify optimality.
+                if res.lower_bound.is_finite() {
+                    assert!(
+                        res.lower_bound <= best + 1e-6,
+                        "case {case}: lower bound {} exceeds the optimum {best}",
+                        res.lower_bound
+                    );
+                    if res.objective - res.lower_bound <= 1e-6 {
+                        proven += 1;
+                        assert!((res.objective - best).abs() < 1e-6, "case {case}: false proof");
+                    }
+                }
             }
             (SolverStatus::Infeasible, Some(_)) => {
                 panic!("case {case}: LP-feasible problem reported infeasible")
@@ -172,7 +185,9 @@ fn branch_and_price_is_sound_on_integer_blocks() {
             _ => {}
         }
     }
-    println!("branch-and-price: {feasible} sound optima, {exact} exact, {pool_errors} pool-limited errors");
+    println!(
+        "branch-and-price: {feasible} sound optima, {exact} exact, {proven} proven by the bound, {pool_errors} pool-limited errors"
+    );
     assert!(feasible > 30, "only {feasible} optimal cases were checked");
 }
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `BpResult::lower_bound`: the converged column-generation LP value, a valid lower
+  bound on the integer optimum (`−∞` when pricing stopped at the round cap). When
+  `objective − lower_bound` is zero, the pool solution is proven optimal.
+
 ### Changed
 - `branch_price`: an infeasible integer master over the generated columns is
   now an error, not `SolverStatus::Infeasible`. The LP master was feasible, so

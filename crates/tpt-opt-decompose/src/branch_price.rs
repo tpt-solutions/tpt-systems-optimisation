@@ -144,6 +144,12 @@ pub struct BpResult {
     /// [`SolverStatus::Infeasible`] is returned only when the LP relaxation is
     /// infeasible; an infeasible integer master over the pool is an error.
     pub status: SolverStatus,
+    /// Lower bound on the integer optimum: the converged column-generation LP
+    /// value over the convexified block polyhedra. It is valid only when
+    /// pricing converged before the round cap, and is `−∞` otherwise. When
+    /// `objective − lower_bound` is within tolerance, the pool solution is
+    /// proven optimal even though `status` only reports the pool.
+    pub lower_bound: f64,
 }
 
 /// Branch-and-price driver.
@@ -338,10 +344,16 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             let art_use: f64 = sol.x[ncols..].iter().sum();
             if art_use > 1e-6 && !added {
                 // Coupling demand unmeetable by any block point.
-                return Ok((sol.objective, sol.x[..ncols].to_vec(), false, rounds));
+                return Ok((f64::INFINITY, sol.x[..ncols].to_vec(), false, rounds));
             }
-            if !added || rounds >= self.max_pricing_rounds {
+            if !added {
+                // Converged: no improving column exists, so the LP value bounds the
+                // integer optimum from below.
                 return Ok((sol.objective, sol.x[..ncols].to_vec(), true, rounds));
+            }
+            if rounds >= self.max_pricing_rounds {
+                // Stopped early: the LP value is not a bound.
+                return Ok((f64::NEG_INFINITY, sol.x[..ncols].to_vec(), true, rounds));
             }
             rounds += 1;
         }
@@ -355,7 +367,7 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
         let mut pool = RmpPool::new();
         self.seed_pool(&mut pool)?;
 
-        let (_, _, feasible, rounds) = self.generate_columns(&mut pool)?;
+        let (root_bound, _, feasible, rounds) = self.generate_columns(&mut pool)?;
         if !feasible {
             return Ok(BpResult {
                 objective: f64::INFINITY,
@@ -363,6 +375,7 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
                 columns: pool.columns().len(),
                 pricing_rounds: rounds,
                 status: SolverStatus::Infeasible,
+                lower_bound: f64::INFINITY,
             });
         }
 
@@ -432,6 +445,7 @@ impl<'a, P: Pricer> BranchAndPrice<'a, P> {
             columns: ncols,
             pricing_rounds: rounds,
             status,
+            lower_bound: root_bound,
         })
     }
 }

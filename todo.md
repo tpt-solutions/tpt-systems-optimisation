@@ -1109,8 +1109,8 @@ browser. The commit-or-drop decision on the pending `ci.yml` and
       `solve_incremental`; approximate-degree AMD ordering in nls (L / L / M) —
       **the co-optimised SC-OPF is done** (`sc_opf_preventive`: one LP, one
       dispatch secure for the intact network and every line outage, no
-      corrective action). **Open:** the Bayes tree, and approximate-degree AMD
-      (the current ordering is exact-degree minimum degree).
+      corrective action). **Open:** the Bayes tree. Approximate-degree AMD is done
+      (see Phase 15d).
 
 Blocked / out of scope (unchanged): crates.io publish and dry-runs, full
 MIPLIB/MINLPLib/Netlib/CSPLib corpora, commercial solver backends, upstream
@@ -1132,11 +1132,13 @@ Recorded from the sweep work. Items are ordered by priority.
       (`tests/sweep_socp_grid.rs`, 150 instances) now passes. Trade-off: the
       centring criterion is looser at large `t`; accuracy is bounded by the
       `m/t` gap plus the scaled decrement.
-- [ ] **Branch-and-price is sound but not complete** (`tpt-opt-decompose::
+- [~] **Branch-and-price is sound but not complete** (`tpt-opt-decompose::
       branch_price`). It solves the integer master over generated columns only.
-      On 300 random integer-block instances: 115 exact, 182 sound, 76 reported as
-      a pool-limited error. Make it complete with real branching and per-node
-      pricing, or keep it documented as a pool heuristic.
+      Decision: keep it documented as a pool heuristic. `BpResult::lower_bound` now
+      reports the converged root LP bound, so a result can be checked as proven
+      optimal. On 300 random integer-block instances: 182 sound, 115 exact, 107
+      proven by the bound, 76 reported as a pool-limited error. Full branch-and-price
+      (per-node pricing, branching on original variables) is deferred.
 - [x] **Robust solves ignored the solver status** (fixed). `TwoStageProblem::solve`
       and four other robust solves read primal values without checking the status,
       so an infeasible problem returned the values of an infeasible point. All five
@@ -1177,16 +1179,27 @@ Recorded from the sweep work. Items are ordered by priority.
 
 ### 15d — Feature work still open
 
-- [ ] C ABI for the solvers. It needs `unsafe`, which conflicts with the
-      no-`unsafe` policy in SECURITY.md. Needs a policy decision first.
-- [ ] Approximate-degree AMD ordering in `tpt-opt-nls` (the current ordering
-      is exact-degree minimum degree).
-- [ ] Full Bayes tree for `solve_incremental` in `tpt-opt-factorgraph`.
-- [ ] Published benchmark dashboard from `perf_regression.rs` (infrastructure).
+- [~] C ABI for the solvers. Decision: not built. It needs `unsafe`, which conflicts
+      with the no-`unsafe` policy in SECURITY.md. Revisit only if a concrete consumer
+      appears, and then as a separate `tpt-opt-ffi` crate, the only crate allowed
+      `unsafe`, with an explicit SECURITY.md amendment.
+- [x] Approximate-degree AMD ordering in `tpt-opt-nls` (done: `Ordering::ApproxMinDegree`
+      is the default; on a 70×70 grid it gives about 7% less fill and analyses in about
+      60% of the time of the exact-degree ordering). Supervariable detection and
+      aggressive element absorption are not implemented.
+- [~] Full Bayes tree for `solve_incremental` in `tpt-opt-factorgraph`. Deferred:
+      `tests/incremental_timing.rs` (ignored, run manually) shows incremental 0.80 s
+      against batch 0.87 s over 199 steps of a growing chain, about 4 ms per step.
+      No bottleneck at that size, so the tree waits for a benchmark that shows one.
+- [~] Benchmark dashboard from `perf_regression.rs`. Started as a CI artifact: the
+      `perf-report` job writes `perf-report.json` (per commit, via `GITHUB_SHA`) and
+      uploads it. No public page yet, because shared runner timings are noisy. Local
+      run: `knapsack-60` takes about 29 s, which is the slowest case to watch.
 
 ### 15e — Housekeeping
 
-- [ ] Commit-or-drop decision on the pending `ci.yml` (semver job `if: false`)
-      and `rust-toolchain.toml` (thumbv6m target) changes.
+- [x] Commit-or-drop decision on `ci.yml` (semver job `if: false`, with a comment) and
+      `rust-toolchain.toml` (thumbv6m target, used by the `no_std` CI job). Decided to
+      commit both; both are already in HEAD.
 - [ ] Split the accumulated working-tree changes into reviewable commits, one
       per fix area (LP engine, cuts, decomposition, bindings, docs).

@@ -7,6 +7,14 @@ breaking changes between minor versions.
 
 ## [Unreleased]
 
+### Fixed
+- The `thumbv6m-none-eabi` no_std build (`--no-default-features`, with or
+  without `alloc`) compiles again. `tpt-math-linalg-sparse` is depended on with
+  `default-features = false`, so `num-traits/std` is no longer pulled in; the
+  crate's float math goes through a new `math` module that uses `libm` without
+  `std`; and the `matrix` module is gated behind `alloc`. Host builds are
+  unchanged.
+
 ### Changed
 - `Constraint::slack` returns the distance to the nearest finite side: positive
   when the constraint holds, negative when violated. Previously a satisfied

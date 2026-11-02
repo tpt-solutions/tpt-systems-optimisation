@@ -48,6 +48,8 @@ pub mod error;
 pub mod expr;
 #[cfg(feature = "alloc")]
 pub mod graph;
+mod math;
+#[cfg(feature = "alloc")]
 pub mod matrix;
 pub mod model;
 #[cfg(feature = "nlp")]
@@ -65,6 +67,7 @@ pub mod unconstrained;
 pub use bounds::{Bound, VarBound, VarType};
 pub use custom::CustomConstraint;
 pub use error::{InfeasibilityReport, OptError};
+#[cfg(feature = "alloc")]
 pub use matrix::{model_to_csc, model_to_csr, ConstraintMatrix};
 pub use model::{Constraint, Model, Objective, Sense, Variable};
 pub use progress::{ProgressAction, ProgressCallback, ProgressEvent};

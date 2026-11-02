@@ -14,6 +14,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::math;
 use crate::unconstrained::{norm2, UncParams, UncResult};
 
 /// Options for [`cma_es`].
@@ -63,18 +64,20 @@ where
 
     // Strategy parameters (Hansen 2016, Table 1).
     let lambda =
-        if opts.lambda == 0 { 4 + (3.0 * nf.ln()).floor() as usize } else { opts.lambda }.max(2);
+        if opts.lambda == 0 { 4 + math::floor(3.0 * math::ln(nf)) as usize } else { opts.lambda }
+            .max(2);
     let mu = lambda / 2;
-    let raw: Vec<f64> = (1..=mu).map(|i| ((mu as f64) + 0.5).ln() - (i as f64).ln()).collect();
+    let raw: Vec<f64> =
+        (1..=mu).map(|i| math::ln((mu as f64) + 0.5) - math::ln(i as f64)).collect();
     let wsum: f64 = raw.iter().sum();
     let weights: Vec<f64> = raw.iter().map(|w| w / wsum).collect();
     let mueff = 1.0 / weights.iter().map(|w| w * w).sum::<f64>();
     let cc = (4.0 + mueff / nf) / (nf + 4.0 + 2.0 * mueff / nf);
     let cs = (mueff + 2.0) / (nf + mueff + 5.0);
     let c1 = 2.0 / ((nf + 1.3) * (nf + 1.3) + mueff);
-    let cmu = (1.0 - c1).min(2.0 * (mueff - 2.0 + 1.0 / mueff) / ((nf + 2.0).powi(2) + mueff));
-    let damps = 1.0 + 2.0 * (((mueff - 1.0) / (nf + 1.0)).sqrt() - 1.0).max(0.0) + cs;
-    let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
+    let cmu = (1.0 - c1).min(2.0 * (mueff - 2.0 + 1.0 / mueff) / (math::powi(nf + 2.0, 2) + mueff));
+    let damps = 1.0 + 2.0 * (math::sqrt((mueff - 1.0) / (nf + 1.0)) - 1.0).max(0.0) + cs;
+    let chi_n = math::sqrt(nf) * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
 
     let mut rng = SplitMix64::new(opts.seed);
     let mut mean = x0.to_vec();
@@ -131,17 +134,17 @@ where
         };
 
         // Cumulative step-size path.
-        let ps_coef = (cs * (2.0 - cs) * mueff).sqrt();
+        let ps_coef = math::sqrt(cs * (2.0 - cs) * mueff);
         for (pi, yi) in ps.iter_mut().zip(&inv_sqrt_yw) {
             *pi = (1.0 - cs) * *pi + ps_coef * yi;
         }
         let ps_norm = norm2(&ps);
         let gen = iterations as f64;
-        let hsig_lhs = ps_norm / (1.0 - (1.0 - cs).powf(2.0 * gen)).sqrt() / chi_n;
+        let hsig_lhs = ps_norm / math::sqrt(1.0 - math::powf(1.0 - cs, 2.0 * gen)) / chi_n;
         let hsig = if hsig_lhs < 1.4 + 2.0 / (nf + 1.0) { 1.0 } else { 0.0 };
 
         // Covariance path and rank-one / rank-μ update.
-        let pc_coef = hsig * (cc * (2.0 - cc) * mueff).sqrt();
+        let pc_coef = hsig * math::sqrt(cc * (2.0 - cc) * mueff);
         for (pci, yw) in pc.iter_mut().zip(&y_w) {
             *pci = (1.0 - cc) * *pci + pc_coef * yw;
         }
@@ -157,7 +160,7 @@ where
         }
 
         // Step-size adaptation.
-        sigma *= ((cs / damps) * (ps_norm / chi_n - 1.0)).exp();
+        sigma *= math::exp((cs / damps) * (ps_norm / chi_n - 1.0));
 
         mean = new_mean;
         let (nb, nd) = eigen_sqrt(&cov, n);
@@ -208,10 +211,10 @@ impl SplitMix64 {
         }
         let u1 = self.next_uniform();
         let u2 = self.next_uniform();
-        let r = (-2.0 * u1.ln()).sqrt();
+        let r = math::sqrt(-2.0 * math::ln(u1));
         let theta = 2.0 * core::f64::consts::PI * u2;
-        self.spare = Some(r * theta.sin());
-        r * theta.cos()
+        self.spare = Some(r * math::sin(theta));
+        r * math::cos(theta)
     }
 }
 
@@ -234,7 +237,7 @@ fn mat_t_vec(b: &[Vec<f64>], n: usize, v: &[f64]) -> Vec<f64> {
 /// `D` the square roots of the eigenvalues, clamped away from zero.
 fn eigen_sqrt(c: &[Vec<f64>], n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
     let (vals, vecs) = jacobi_eigen(c, n);
-    let d = vals.iter().map(|v| v.max(f64::MIN_POSITIVE).sqrt()).collect();
+    let d = vals.iter().map(|v| math::sqrt(v.max(f64::MIN_POSITIVE))).collect();
     (vecs, d)
 }
 
@@ -261,9 +264,9 @@ fn jacobi_eigen(sym: &[Vec<f64>], n: usize) -> (Vec<f64>, Vec<Vec<f64>>) {
                     continue;
                 }
                 let theta = (a[q][q] - a[p][p]) / (2.0 * apq);
-                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let t = theta.signum() / (theta.abs() + math::sqrt(theta * theta + 1.0));
                 let t = if theta == 0.0 { 1.0 } else { t };
-                let c = 1.0 / (t * t + 1.0).sqrt();
+                let c = 1.0 / math::sqrt(t * t + 1.0);
                 let s = t * c;
                 for row in a.iter_mut().chain(v.iter_mut()) {
                     let (x, y) = (row[p], row[q]);

@@ -15,6 +15,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::math;
+
 /// Stopping and budget controls shared by the methods in this module.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UncParams {
@@ -448,7 +450,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 }
 
 pub(crate) fn norm2(a: &[f64]) -> f64 {
-    dot(a, a).sqrt()
+    math::sqrt(dot(a, a))
 }
 
 fn norm_inf(a: &[f64]) -> f64 {

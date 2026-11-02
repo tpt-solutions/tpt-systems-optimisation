@@ -19,6 +19,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::math;
+
 /// A convex quadratic program in dense form.
 ///
 /// `q` is `n × n`, `c` has length `n`, `g` has `m` rows of length `n` with
@@ -148,7 +150,7 @@ pub fn solve_qp(prob: &QpProblem, opts: &QpOptions) -> QpSolution {
         } else {
             0.0
         };
-        let sigma = if mu > 0.0 { (mu_aff / mu).powi(3).clamp(0.0, 1.0) } else { 0.0 };
+        let sigma = if mu > 0.0 { math::powi(mu_aff / mu, 3).clamp(0.0, 1.0) } else { 0.0 };
 
         // Corrector: centring plus second-order term from the predictor.
         let rcomp: Vec<f64> = (0..m).map(|i| sz[i] - sigma * mu + aff.ds[i] * aff.dz[i]).collect();

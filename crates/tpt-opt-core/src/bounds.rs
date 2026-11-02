@@ -16,7 +16,7 @@
 /// The published `tpt-math` crates do not expose this helper, so it is defined
 /// locally here rather than pulled from `tpt-math-numeric`.
 pub(crate) fn is_integer(x: f64, eps: f64) -> bool {
-    (x - x.round()).abs() <= eps
+    (x - crate::math::round(x)).abs() <= eps
 }
 
 /// A variable kind, orthogonal to its numeric bounds.

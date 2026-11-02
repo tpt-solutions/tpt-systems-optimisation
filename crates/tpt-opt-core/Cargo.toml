@@ -14,7 +14,14 @@ categories = ["science::math", "algorithms", "mathematics"]
 documentation = "https://docs.rs/tpt-opt-core"
 
 [dependencies]
-tpt-math-linalg-sparse = { workspace = true }
+# Not `workspace = true`: cargo ignores `default-features` on inherited
+# dependencies. The published sparse crate defaults to `std`, which pulls
+# `num-traits/std` and breaks the no_std (`thumbv6m-none-eabi`) build. The
+# `std` feature below forwards it back on for host builds.
+tpt-math-linalg-sparse = { version = "0.2.0", default-features = false }
+# `no_std` float math (`sqrt`, `ln`, `exp`, ...); see `src/math.rs`. Already in
+# the lockfile via `num-traits`.
+libm = "0.2"
 serde = { workspace = true, optional = true }
 # Optional dependency backing the in-crate augmented-Lagrangian NLP solver
 # (`nlp` module) used by `tpt-opt-minlp` and `tpt-opt-network`'s AC-OPF. The
@@ -28,8 +35,8 @@ serde_json = "1.0"
 
 [features]
 default = ["std"]
-std = ["alloc"]
-alloc = []
+std = ["alloc", "tpt-math-linalg-sparse/std"]
+alloc = ["tpt-math-linalg-sparse/alloc"]
 # Augmented-Lagrangian constrained-NLP solver (`solve_nlp`/`NlpProblem`). Its
 # inner subproblem uses the conjugate-gradient minimizer from
 # `tpt-math-optimize-general` as the primary solver, with a self-contained BFGS

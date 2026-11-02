@@ -21,7 +21,7 @@ use std::vec::Vec;
 
 use crate::constraints::Constraint;
 use crate::domain::Domain;
-use crate::model::{fixpoint, fixpoint_report, CpModel};
+use crate::model::{fixpoint, propagate_from, watch_lists, CpModel};
 
 /// A (partial or complete) solution: one value per variable.
 #[derive(Debug, Clone)]
@@ -52,6 +52,9 @@ const MAX_NOGOOD_ARITY: usize = 10;
 /// Search context shared across the recursion.
 struct Ctx<'a> {
     cons: &'a [Box<dyn Constraint>],
+    /// Watch lists: `watch[v]` lists the constraints whose scope contains `v`.
+    /// A branching decision on `v` seeds propagation with exactly these.
+    watch: Vec<Vec<usize>>,
     /// Static conflict neighbourhoods: `neighbors[v]` lists the variables
     /// sharing at least one constraint with `v` (sorted, unique).
     neighbors: Vec<Vec<usize>>,
@@ -141,7 +144,7 @@ pub fn solve_with(model: &CpModel, selection: VariableSelection) -> Option<CpSol
     }
     let ctx = build_ctx(cons, selection);
     let mut path: Vec<(usize, usize)> = Vec::new();
-    match dfs(&mut doms, &mut path, &ctx) {
+    match dfs(&mut doms, &mut path, &ctx, &[]) {
         Ok(a) => Some(CpSolution { assignment: a }),
         Err(_) => None,
     }
@@ -164,7 +167,7 @@ pub fn solutions_with(
         return out;
     }
     let ctx = build_ctx(model.constraints(), selection);
-    collect(&mut doms, &ctx, limit, &mut out);
+    collect(&mut doms, &ctx, limit, &mut out, &[]);
     out
 }
 
@@ -192,6 +195,7 @@ fn build_ctx(cons: &[Box<dyn Constraint>], selection: VariableSelection) -> Ctx<
     }
     Ctx {
         cons,
+        watch: watch_lists(n, cons),
         neighbors,
         degree,
         selection,
@@ -212,6 +216,7 @@ fn dfs(
     doms: &mut [Domain],
     path: &mut Vec<(usize, usize)>,
     ctx: &Ctx,
+    seeds: &[usize],
 ) -> Result<Vec<usize>, Vec<usize>> {
     // No-good pruning: this exact decision prefix already failed elsewhere.
     if let Some(vars) = ctx.hit_nogood(path) {
@@ -219,8 +224,9 @@ fn dfs(
         return Err(vars);
     }
 
-    // Propagate; attribute any wipeout to the failing constraint's scope.
-    if let Err(ci) = fixpoint_report(doms, ctx.cons) {
+    // Propagate from the constraints touched by the last decision; the parent
+    // was already at a fixpoint. Attribute any wipeout to the failing scope.
+    if let Err(ci) = propagate_from(doms, ctx.cons, &ctx.watch, seeds).map(|_| ()) {
         let mut set: Vec<usize> = ctx.cons[ci]
             .vars()
             .iter()
@@ -269,7 +275,8 @@ fn dfs(
         let mut nd = doms.to_vec();
         nd[u].assign(v);
         path.push((u, v));
-        let r = dfs(&mut nd, path, ctx);
+        let child_seeds = ctx.watch.get(u).map_or(&[][..], Vec::as_slice);
+        let r = dfs(&mut nd, path, ctx, child_seeds);
         path.pop();
         match r {
             Ok(a) => return Ok(a),
@@ -301,11 +308,17 @@ fn dfs(
     Err(out)
 }
 
-fn collect(doms: &mut [Domain], ctx: &Ctx, limit: usize, out: &mut Vec<CpSolution>) {
+fn collect(
+    doms: &mut [Domain],
+    ctx: &Ctx,
+    limit: usize,
+    out: &mut Vec<CpSolution>,
+    seeds: &[usize],
+) {
     if out.len() >= limit {
         return;
     }
-    if fixpoint(doms, ctx.cons).is_err() {
+    if propagate_from(doms, ctx.cons, &ctx.watch, seeds).is_err() {
         return;
     }
     if doms.iter().all(|d| d.is_singleton()) {
@@ -323,6 +336,7 @@ fn collect(doms: &mut [Domain], ctx: &Ctx, limit: usize, out: &mut Vec<CpSolutio
         }
         let mut nd = doms.to_vec();
         nd[var].assign(v);
-        collect(&mut nd, ctx, limit, out);
+        let child_seeds = ctx.watch.get(var).map_or(&[][..], Vec::as_slice);
+        collect(&mut nd, ctx, limit, out, child_seeds);
     }
 }

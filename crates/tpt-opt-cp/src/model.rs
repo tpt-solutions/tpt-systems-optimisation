@@ -162,18 +162,44 @@ pub(crate) fn fixpoint_ac3(
     doms: &mut [Domain],
     cons: &[Box<dyn Constraint>],
 ) -> Result<Ac3Stats, usize> {
-    // Variable -> constraints whose scope contains it (watch lists).
-    let mut var_cons: Vec<Vec<usize>> = vec![Vec::new(); doms.len()];
+    let var_cons = watch_lists(doms.len(), cons);
+    let all: Vec<usize> = (0..cons.len()).collect();
+    propagate_from(doms, cons, &var_cons, &all)
+}
+
+/// Watch lists: for each variable, the constraints whose scope contains it.
+pub(crate) fn watch_lists(num_vars: usize, cons: &[Box<dyn Constraint>]) -> Vec<Vec<usize>> {
+    let mut var_cons: Vec<Vec<usize>> = vec![Vec::new(); num_vars];
     for (ci, c) in cons.iter().enumerate() {
         for &v in c.vars() {
-            if v < doms.len() && !var_cons[v].contains(&ci) {
+            if v < num_vars && !var_cons[v].contains(&ci) {
                 var_cons[v].push(ci);
             }
         }
     }
+    var_cons
+}
 
-    let mut queue: VecDeque<usize> = (0..cons.len()).collect();
-    let mut queued = vec![true; cons.len()];
+/// AC-3 worklist seeded with only `seeds` (constraint indices).
+///
+/// Incremental use: when the domains were already at a fixpoint and only the
+/// variables of some constraints changed, seeding with the watchers of those
+/// variables reaches the same fixpoint as a full pass, while revising far fewer
+/// constraints. Seeding with every constraint is the full pass.
+pub(crate) fn propagate_from(
+    doms: &mut [Domain],
+    cons: &[Box<dyn Constraint>],
+    var_cons: &[Vec<usize>],
+    seeds: &[usize],
+) -> Result<Ac3Stats, usize> {
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut queued = vec![false; cons.len()];
+    for &ci in seeds {
+        if !queued[ci] {
+            queued[ci] = true;
+            queue.push_back(ci);
+        }
+    }
     let mut stats = Ac3Stats::default();
 
     while let Some(ci) = queue.pop_front() {

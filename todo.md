@@ -997,21 +997,50 @@ remains is small leftovers plus the adoption gap: no modelling DSL, no
 prelude/auto-selection, a MILP-only CLI, no bindings, no release/docs pipeline.
 Sizes: S/M/L.
 
-**Status (2026-11-02, second pass):** 14a is done except the repo-hygiene
-commit decision; 14b is done; 14c is done except a FlatZinc subset; 14d is
-open (see below). Verified: `cargo test --workspace` passes (400 tests, 0
-failures; 405 in the final run), `cargo clippy --workspace --all-targets -- -D warnings`, the
-umbrella clippy with `--all-features`, and `cargo fmt --all -- --check` are
-clean, the `no_std` and no-default-feature builds succeed, and `cargo deny
-check licenses sources` passes. Not verified here: the `highs` feature (CMake
-is not installed on this machine, so `--solver highs` and
-`cargo build --features highs` fail in `highs-sys`); the three new workflows
-are syntax-checked (`js-yaml`) but have not run on GitHub; the mdBook builds
-locally. Still open: the uncommitted `ci.yml` (semver job `if: false`) and
-`rust-toolchain.toml` (thumbv6m target) changes need a commit-or-drop
-decision; a FlatZinc subset; and all of 14d, which is large or needs
-infrastructure this machine lacks (Python/maturin for the wheel, a WASM
-toolchain, and the `sc_opf`, Bayes-tree, and approximate-AMD work).
+**Status (2026-11-02, third pass):** 14a and 14b are done except the
+repo-hygiene commit decision and the optional items noted below. 14c is done
+(including a FlatZinc subset, OPB, JSON, IIS, presolve, the CLI and the mdBook).
+14d is partly done: the Python wheel covers milp and heuristic, the WASM build
+runs in the browser, and `sc_opf_preventive` co-optimises SC-OPF. The Python
+wheel also binds `multi`, and the CP search now uses incremental AC-3. Still
+open: a C ABI (it needs `unsafe`), the approximate-degree AMD ordering, the
+Bayes tree, and the benchmark dashboard.
+
+A brute-force sweep of the MILP solver against exhaustive enumeration
+(`tpt-opt-milp/tests/milp_bruteforce.rs`) found that root Gomory and
+lift-and-project cuts were invalid for variables with nonzero lower bounds
+(`with_cuts(true)` could report feasible models as infeasible). Fixed, and the
+sweep passes on 20 000 random models across four solver configurations.
+
+A sweep of the decomposition crate against monolithic solves then found that
+the LP engine's duals were wrong (each row's multiplier was the cost of the
+basic variable in that row, with the wrong sign for `<=` and `=` rows). Column
+generation depended on them, so Dantzig–Wolfe could stop before optimality.
+Fixed; a strong-duality sweep (3000 LPs) and a Dantzig–Wolfe sweep (400
+instances) now pass, along with Benders and Lagrangian soundness sweeps.
+Branch-and-price is sound but not complete: it solves the integer master over
+the generated columns only. Its `Optimal` can be worse than the true optimum,
+and an infeasible pool is now an error rather than a claim of infeasibility.
+On 300 random integer-block instances it reached the exact optimum in 115 cases.
+Making it complete needs real branching (open).
+
+This pass also fixed defects found along the way, which the existing tests had
+not exercised. The network LP (`tpt-opt-network::lp`) panicked on any infeasible
+LP, returned wrong optima for equality rows, and could return points that broke
+bounds. The MILP LP relaxation (`tpt-opt-milp::lp`) reported infeasible LPs as
+optimal in rare cases. `Constraint::slack` (`tpt-opt-core`) reported a feasible
+one-sided constraint as violated, which skewed the heuristic penalty. Each has a
+regression test, and a 3000-case random LP cross-check runs between the two
+engines.
+
+Verified: `cargo test --workspace` passes (425 tests, 0 failures), `cargo
+clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all -- --check`
+are clean, `cargo deny check licenses sources` passes, the Python wheel passes
+its 9 tests, and the WASM build passes its Node smoke test. Not verified here:
+the `highs` feature (CMake is not installed here); the three GitHub workflows
+(syntax-checked only); and the HTML demo page, which has not been rendered in a
+browser. The commit-or-drop decision on the pending `ci.yml` and
+`rust-toolchain.toml` changes is still open.
 
 ### 14a — Leftovers
 
@@ -1051,7 +1080,7 @@ toolchain, and the `sc_opf`, Bayes-tree, and approximate-AMD work).
 - [x] CLI: subcommands `solve | info | convert | classify`, `--format json`,
       `--solver {milp,highs}`, `--gap`, `--log`, solution-file output, optional
       `clap`; wire the empty `highs` feature (M)
-- [x] JSON model import/export via serde (S) — **done** (`tpt_opt_systems::json`); OPB — **done** (`tpt-opt-milp::opb`, binary models with integer coefficients). **Still open:** a FlatZinc subset for CP (M)
+- [x] JSON model import/export via serde (S) — **done** (`tpt_opt_systems::json`); OPB — **done** (`tpt-opt-milp::opb`, binary models with integer coefficients); FlatZinc subset — **done** (`tpt-opt-cp::flatzinc`: variable and array declarations, linear and `all_different` constraints, and `solve satisfy|minimize|maximize`; optimisation enumerates solutions up to 100 000)
 - [x] IIS (deletion filter) in `tpt-opt-milp` and a `PresolveReport` (M)
 - [x] CI: `release.yml` (release-plz or cargo-dist CLI binaries + binstall
       metadata), `docs.yml` (rustdoc to Pages), `coverage.yml` (llvm-cov) (S each)
@@ -1064,13 +1093,97 @@ toolchain, and the `sc_opf`, Bayes-tree, and approximate-AMD work).
 ### 14d — Larger / optional
 
 - [ ] Python wheel (PyO3/maturin) for milp, heuristic, multi; then a WASM browser
-      demo and a C ABI (L)
-- [ ] CP: incremental AC-3, impact/activity variable selection, stronger
-      table/circuit GAC (M each)
+      demo and a C ABI (L) — **partly done**: `bindings/python` (wheel built with
+      maturin, milp and heuristic bound, 9 tests pass) and `bindings/wasm` (the
+      browser build, smoke-tested under Node; the HTML page is not rendered here).
+      `multi` is now bound too (`LinearMultiObjective`: weighted sums,
+      epsilon-constraint, payoff table, NSGA-II). **Open:** the C ABI, which needs `unsafe` and so
+      conflicts with the no-`unsafe` policy in SECURITY.md
+- [x] CP: incremental AC-3 (**done**: the search seeds propagation with the
+      constraints watching the branching variable, not every constraint; the
+      impact/activity selection and the stronger table/circuit GAC were already
+      done in Phase 11). Checked by the brute-force fuzz and the CSPLib and
+      magic-square tests; not benchmarked
 - [ ] MILP work-stealing parallel tree search; published benchmark dashboard (L)
 - [ ] `sc_opf` co-optimised security-constrained OPF; full Bayes-tree for
-      `solve_incremental`; approximate-degree AMD ordering in nls (L / L / M)
+      `solve_incremental`; approximate-degree AMD ordering in nls (L / L / M) —
+      **the co-optimised SC-OPF is done** (`sc_opf_preventive`: one LP, one
+      dispatch secure for the intact network and every line outage, no
+      corrective action). **Open:** the Bayes tree, and approximate-degree AMD
+      (the current ordering is exact-degree minimum degree).
 
 Blocked / out of scope (unchanged): crates.io publish and dry-runs, full
 MIPLIB/MINLPLib/Netlib/CSPLib corpora, commercial solver backends, upstream
 `thumbv6m` fix.
+
+## Phase 15 — Open tasks from the correctness sweeps (added 2026-11-02)
+
+Recorded from the sweep work. Items are ordered by priority.
+
+### 15a — Correctness defects (highest priority)
+
+- [x] **SOCP interior-point solver failed on well-posed problems** (fixed).
+      `tpt-opt-conic::ip` returned `MaxIterations` on bounded two-variable
+      instances with an interior: at large barrier parameter `t`, Newton stalled
+      at rounding level, because the decrement test `λ²/2 ≤ 1e-10` is absolute
+      and unreachable there. Two changes: the decrement threshold now scales with
+      `(1 + t)`, and a stalled centring step is accepted when its duality-gap bound
+      `m/t` is already at most `1e-6`. The grid sweep
+      (`tests/sweep_socp_grid.rs`, 150 instances) now passes. Trade-off: the
+      centring criterion is looser at large `t`; accuracy is bounded by the
+      `m/t` gap plus the scaled decrement.
+- [ ] **Branch-and-price is sound but not complete** (`tpt-opt-decompose::
+      branch_price`). It solves the integer master over generated columns only.
+      On 300 random integer-block instances: 115 exact, 182 sound, 76 reported as
+      a pool-limited error. Make it complete with real branching and per-node
+      pricing, or keep it documented as a pool heuristic.
+- [x] **Robust solves ignored the solver status** (fixed). `TwoStageProblem::solve`
+      and four other robust solves read primal values without checking the status,
+      so an infeasible problem returned the values of an infeasible point. All five
+      now go through `require_optimal`, which turns any non-optimal status into an
+      error. Regression: `tests/sweep_two_stage.rs`.
+- [x] **GBD cut generation was not valid** (fixed). The old flat and finite-
+      difference cuts did not hold for other integer points; on
+      `convex_tradeoff_model` the lower bound reached 16 against an optimum of
+      14. Now: optimality cuts come from the KKT multipliers of the continuous
+      subproblem (recovered by a least-residual LP, certified by its residual).
+      The cut is `θ ≥ f(x_k,y_k) + ∇_y(f + Σλg + Σμh)·(y − y_k)`, valid for
+      convex problems. Infeasible subproblems add no cut; they are enumerated
+      instead. An exhausted integer enumeration proves optimality. Convex sweep
+      (30 instances) and the benchmark pass. Open: a feasibility cut from the
+      min-max violation problem's multipliers would speed up infeasible regions;
+      and nonconvex instances are not covered by the cut's validity argument.
+
+### 15b — Remaining exact-solver sweeps
+
+- [x] Robust crate: two-stage problems against Benders decomposition on the same
+      problem (`tests/sweep_two_stage.rs`, 300 instances, plus an infeasibility
+      regression). Multi-stage models are not swept yet.
+- [~] MINLP crate: convex instances against enumeration (`tests/sweep_convex_minlp.rs`,
+      30 instances, about 25 s). OA, GBD and SQP-B&B must all reach the optimum; GBD
+      is now strict since the multiplier-based cuts (15a). A 200-instance run has not
+      yet completed. Nonconvex and multi-integer instances are not swept.
+- [x] Conic SDP path: a closed-form check on the unit disc (`tests/sweep_sdp_disc.rs`).
+
+### 15c — Verification gaps (need tooling not present on this machine)
+
+- [ ] Build and test the `highs` feature (needs CMake and a C++ toolchain).
+- [ ] Run the three new GitHub workflows (`docs.yml`, `coverage.yml`,
+      `release.yml`) on GitHub; they are syntax-checked only.
+- [ ] Render the WASM demo page (`bindings/wasm/www/index.html`) in a browser.
+
+### 15d — Feature work still open
+
+- [ ] C ABI for the solvers. It needs `unsafe`, which conflicts with the
+      no-`unsafe` policy in SECURITY.md. Needs a policy decision first.
+- [ ] Approximate-degree AMD ordering in `tpt-opt-nls` (the current ordering
+      is exact-degree minimum degree).
+- [ ] Full Bayes tree for `solve_incremental` in `tpt-opt-factorgraph`.
+- [ ] Published benchmark dashboard from `perf_regression.rs` (infrastructure).
+
+### 15e — Housekeeping
+
+- [ ] Commit-or-drop decision on the pending `ci.yml` (semver job `if: false`)
+      and `rust-toolchain.toml` (thumbv6m target) changes.
+- [ ] Split the accumulated working-tree changes into reviewable commits, one
+      per fix area (LP engine, cuts, decomposition, bindings, docs).

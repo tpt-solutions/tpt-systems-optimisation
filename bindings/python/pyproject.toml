@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tpt-opt"
+version = "0.1.0"
+description = "Mixed-integer programming and simulated annealing from the tpt-systems-optimisation suite."
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "tpt_opt"

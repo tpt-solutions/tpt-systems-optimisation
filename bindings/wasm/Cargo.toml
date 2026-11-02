@@ -1,0 +1,23 @@
+[package]
+name = "tpt-opt-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "WebAssembly build of the tpt-opt MILP solver for the browser demo."
+publish = false
+
+# Standalone workspace: excluded from the main workspace and built with wasm-pack.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+tpt-opt-core = { path = "../../crates/tpt-opt-core" }
+tpt-opt-milp = { path = "../../crates/tpt-opt-milp" }
+
+[package.metadata.wasm-pack.profile.release]
+# The optimiser download needs network access; the demo works without it.
+wasm-opt = false

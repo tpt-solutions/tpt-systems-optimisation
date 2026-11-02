@@ -1,0 +1,23 @@
+[package]
+name = "tpt-opt-py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+description = "Python bindings for tpt-systems-optimisation: MILP models and simulated annealing."
+publish = false
+
+# Standalone workspace: this crate is excluded from the main workspace (it
+# needs a Python toolchain and builds a cdylib), so it is its own root.
+[workspace]
+
+[lib]
+name = "tpt_opt"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+tpt-opt-core = { path = "../../crates/tpt-opt-core" }
+tpt-opt-milp = { path = "../../crates/tpt-opt-milp" }
+tpt-opt-heuristic = { path = "../../crates/tpt-opt-heuristic" }
+tpt-opt-multi = { path = "../../crates/tpt-opt-multi" }

@@ -16,3 +16,7 @@ Cargo.lock
 .kilo/
 .kilocode/
 docs/book/
+bindings/*/target/
+bindings/wasm/www/pkg/
+bindings/python/*.whl
+__pycache__/
